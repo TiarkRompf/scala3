@@ -1425,7 +1425,28 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         }
     }
 
-  def typedBlockStats(stats: List[untpd.Tree])(using Context): (List[tpd.Tree], Context) =
+  def expandStats(stats: List[untpd.Tree])(using Context): List[untpd.Tree] =
+    stats match
+      case (stat @ Apply(Ident(nme), args)) :: rest if nme.toString == "open" =>
+        val tree = stat
+        println("FOUND OPEN "+stat.show)
+        // println("---")
+
+        val mdef = cpy.ValDef(tree)(NameKinds.UniqueName.fresh(termName("open_cap")), untpd.TypeTree(), // defn.UnitType
+          cpy.Apply(tree)(
+            cpy.Ident(tree)(nme), 
+              args
+          ).withSpan(tree.span),
+        ).withSpan(tree.span).withFlags(Implicit)
+
+        mdef :: expandStats(rest)
+
+      case stat :: rest => stat :: expandStats(rest)
+      case Nil => Nil
+
+
+  def typedBlockStats(stats0: List[untpd.Tree])(using Context): (List[tpd.Tree], Context) =
+    val stats = expandStats(stats0)
     index(stats)
     typedStats(stats, ctx.owner)
 
@@ -3673,6 +3694,11 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     var enumContexts: SimpleIdentityMap[Symbol, Context] = SimpleIdentityMap.empty
     val initialNotNullInfos = ctx.notNullInfos
       // A map from `enum` symbols to the contexts enclosing their definitions
+
+
+    val usedSyms = new util.HashSet[Symbol]()
+    val killedSyms = new util.HashSet[Symbol]()
+
     @tailrec def traverse(stats: List[untpd.Tree])(using Context): (List[Tree], Context) = stats match {
       case (imp: untpd.Import) :: rest =>
         val imp1 = typed(imp)
@@ -3715,6 +3741,26 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         val stat1 = typed(stat)(using ctx.exprContext(stat, exprOwner))
         if !Linter.warnOnInterestingResultInStatement(stat1) then checkStatementPurity(stat1)(stat, exprOwner)
         buf += stat1
+
+        stat1 match {
+          case Apply(Apply(Ident(nme), List()), List(c)) if nme.toString == "close" => 
+            println("FOUND CLOSE "+stat1.show)
+            // println(c.show + " / " + c.symbol)
+            // println("---")
+            killedSyms += c.symbol
+
+          case Apply(Apply(Ident(nme), s), List(c)) if nme.toString == "write" => 
+            println("FOUND WRITE "+stat1.show)
+            // println("### STM APPLY WRITE "+stat1.show)
+            // println(c.show + " / " + c.symbol)
+            // println("---")
+            if killedSyms.contains(c.symbol) then
+              report.error(i"Implicit capability of type ${c.tpe} is no longer available", stat1.srcPos)
+            usedSyms += c.symbol
+
+          case _ =>
+        }
+
         traverse(rest)(using stat1.nullableContext)
       case nil =>
         (buf.toList, ctx)
