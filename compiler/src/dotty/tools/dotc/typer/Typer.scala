@@ -2916,7 +2916,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
     // XXX Purdue: possible hook for typing method body
     // (subject to !sym.isConstructor)
-    val rhs1 = excludeDeferredGiven(rhs, sym): rhs =>
+    val rhs1 = excludeDeferredGiven(ddef.rhs, sym): rhs =>
       PrepareInlineable.dropInlineIfError(sym,
         if sym.isScala2Macro then typedScala2MacroBody(rhs)(using rhsCtx)
         else typedExpr(rhs, tpt1.tpe.widenExpr)(using rhsCtx))
