@@ -1425,12 +1425,12 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         }
     }
 
+  // XXX Purdue (attempt 0)
   def expandStats(stats: List[untpd.Tree])(using Context): List[untpd.Tree] =
     stats match
       case (stat @ Apply(Ident(nme), args)) :: rest if nme.toString == "open" =>
         val tree = stat
         println("FOUND OPEN "+stat.show)
-        // println("---")
 
         val mdef = cpy.ValDef(tree)(NameKinds.UniqueName.fresh(termName("open_cap")), untpd.TypeTree(), // defn.UnitType
           cpy.Apply(tree)(
@@ -2913,7 +2913,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
     if sym.isInlineMethod then rhsCtx.addMode(Mode.InlineableBody)
     if sym.is(ExtensionMethod) then rhsCtx.addMode(Mode.InExtensionMethod)
-    val rhs1 = excludeDeferredGiven(ddef.rhs, sym): rhs =>
+
+    // XXX Purdue: possible hook for typing method body
+    // (subject to !sym.isConstructor)
+    val rhs1 = excludeDeferredGiven(rhs, sym): rhs =>
       PrepareInlineable.dropInlineIfError(sym,
         if sym.isScala2Macro then typedScala2MacroBody(rhs)(using rhsCtx)
         else typedExpr(rhs, tpt1.tpe.widenExpr)(using rhsCtx))
@@ -3695,10 +3698,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     val initialNotNullInfos = ctx.notNullInfos
       // A map from `enum` symbols to the contexts enclosing their definitions
 
-
-    val usedSyms = new util.HashSet[Symbol]()
-    val killedSyms = new util.HashSet[Symbol]()
-
     @tailrec def traverse(stats: List[untpd.Tree])(using Context): (List[Tree], Context) = stats match {
       case (imp: untpd.Import) :: rest =>
         val imp1 = typed(imp)
@@ -3741,26 +3740,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         val stat1 = typed(stat)(using ctx.exprContext(stat, exprOwner))
         if !Linter.warnOnInterestingResultInStatement(stat1) then checkStatementPurity(stat1)(stat, exprOwner)
         buf += stat1
-
-        stat1 match {
-          case Apply(Apply(Ident(nme), List()), List(c)) if nme.toString == "close" => 
-            println("FOUND CLOSE "+stat1.show)
-            // println(c.show + " / " + c.symbol)
-            // println("---")
-            killedSyms += c.symbol
-
-          case Apply(Apply(Ident(nme), s), List(c)) if nme.toString == "write" => 
-            println("FOUND WRITE "+stat1.show)
-            // println("### STM APPLY WRITE "+stat1.show)
-            // println(c.show + " / " + c.symbol)
-            // println("---")
-            if killedSyms.contains(c.symbol) then
-              report.error(i"Implicit capability of type ${c.tpe} is no longer available", stat1.srcPos)
-            usedSyms += c.symbol
-
-          case _ =>
-        }
-
         traverse(rest)(using stat1.nullableContext)
       case nil =>
         (buf.toList, ctx)
@@ -4461,6 +4440,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           && !ctx.isInlineContext
       then
         typr.println(i"insert apply on implicit $tree")
+        // XXX Purdue -- possible hook: inserted apply on implicit fun
         val sel = untpd.Select(untpd.TypedSplice(tree), nme.apply).withAttachment(InsertedApply, ())
         try typed(sel, pt, locked) finally sel.removeAttachment(InsertedApply)
       else if ctx.mode is Mode.Pattern then
