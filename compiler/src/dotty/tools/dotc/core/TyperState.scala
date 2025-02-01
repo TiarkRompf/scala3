@@ -16,6 +16,13 @@ import Decorators.*
 import scala.annotation.internal.sharable
 import scala.compiletime.uninitialized
 
+case class FlowState(val stm: List[Any], val count: Int)
+
+object FlowState {
+  val empty = FlowState(Nil, 0)
+}
+
+
 object TyperState {
   @sharable private var nextId: Int = 0
   def initialState() =
@@ -26,20 +33,21 @@ object TyperState {
 
   type LevelMap = SimpleIdentityMap[TypeVar, Integer]
 
-  opaque type Snapshot = (Constraint, TypeVars, LevelMap)
+  opaque type Snapshot = (Constraint, TypeVars, LevelMap, FlowState)
 
   extension (ts: TyperState)
     def snapshot()(using Context): Snapshot =
-      (ts.constraint, ts.ownedVars, ts.upLevels)
+      (ts.constraint, ts.ownedVars, ts.upLevels, ts.flowState)
 
     def resetTo(state: Snapshot)(using Context): Unit =
-      val (constraint, ownedVars, upLevels) = state
+      val (constraint, ownedVars, upLevels, flowState) = state
       for tv <- ownedVars do
         if !ts.ownedVars.contains(tv) then // tv has been instantiated
           tv.resetInst(ts)
       ts.constraint = constraint
       ts.ownedVars = ownedVars
       ts.upLevels = upLevels
+      ts.flowState = flowState
 }
 
 class TyperState() {
@@ -94,6 +102,11 @@ class TyperState() {
 
   private var upLevels: LevelMap = uninitialized
 
+  private var myFlowState: FlowState = uninitialized
+  def flowState: FlowState = myFlowState
+  def flowState_=(fs: FlowState): Unit = myFlowState = fs
+
+
   /** Initializes all fields except reporter, isCommittable, which need to be
    *  set separately.
    */
@@ -105,6 +118,7 @@ class TyperState() {
     this.previousConstraint = constraint
     this.myOwnedVars = SimpleIdentitySet.empty
     this.upLevels = SimpleIdentityMap.empty
+    this.flowState = FlowState.empty
     this.isCommitted = false
     this
 
@@ -116,6 +130,7 @@ class TyperState() {
       .setReporter(reporter)
       .setCommittable(committable)
     ts.upLevels = upLevels
+    ts.flowState = flowState
     ts
 
   /** The uninstantiated variables */
