@@ -2930,20 +2930,24 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
   // Second attempt, using typerState
 
-  def tryCatchCPS[T](f: => T)(g: (TermName, untpd.Tree) => T)(using Context): T = {
+  def tryCatchCPS1[T](f: => T)(g: (TermName, untpd.Tree) => T)(using Context): T = {
     val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
     val saveCpsCounter = cpsCounter
-    try {
-      f
-    } catch {
+    try f catch {
       case e: CPSException =>
         val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
         println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
-        val pre = stmList.last
         ctx.typerState.flowState = FlowState(stmList, saveCpsCounter)
-        g(termName("cps"+(stmList.length-1)), pre)
+        g(termName("cps"+(stmList.length-1)), stmList.last)
     }
   }
+
+  def tryCatchCPS[T](f: => T)(g: (untpd.Tree => untpd.Tree) => T)(using Context): T =
+    tryCatchCPS1(f)((nme, pre) => g(last => 
+      untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
+        List(untpd.Function(
+          List(untpd.ValDef(nme,untpd.TypeTree(),untpd.EmptyTree).withFlags(Param)),
+            last)))))
 
   def pushCPS(tree: Tree)(using Context): Tree = {
     val flag = tree.hasAttachment(InsertedApply)
@@ -3913,14 +3917,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
                   buf += mdef1
                   traverse(rest, expr)
               }
-            } { (nme, pre) =>
+            } { k =>
                 rest.foreach(x => x.removeAttachment(SymOfTree))
-                val last = untpd.Block(mdef::rest, expr)              
-                val res = untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
-                  List(untpd.Function(
-                    List(untpd.ValDef(nme,untpd.TypeTree(),untpd.EmptyTree).withFlags(Param)),
-                    last)))
-                traverse(Nil, res) //(using stat1.nullableContext)
+                val last = untpd.Block(mdef::rest, expr)
+                traverse(Nil, k(last)) //(using stat1.nullableContext)
             }
         }
       case Thicket(stats) :: rest =>
@@ -3939,13 +3939,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           if !Linter.warnOnInterestingResultInStatement(stat1) then checkStatementPurity(stat1)(stat, exprOwner)
           buf += stat1
           traverse(rest, expr)(using stat1.nullableContext)
-        } { (name, pre) =>
+        } { k =>
           rest.foreach(x => x.removeAttachment(SymOfTree))
-          val last = untpd.Block(stat::rest, expr)          
-          val res = untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
-            List(untpd.Function(List(untpd.ValDef(name, untpd.TypeTree(), untpd.EmptyTree).withFlags(Param)),
-              last)))
-          traverse(Nil, res) //(using stat1.nullableContext)
+          val last = untpd.Block(stat::rest, expr)
+          traverse(Nil, k(last)) //(using stat1.nullableContext)
         }
       case nil =>
         val (stats0, finalCtx) = (buf.toList, ctx)
