@@ -4026,7 +4026,13 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     withoutMode(Mode.PatternOrTypeBits)(typed(tree, pt))
 
   def typedTailExpr(tree: untpd.Tree, pt: Type = WildcardType)(using Context): Tree =
-    withoutMode(Mode.PatternOrTypeBits)(typedTail(tree, pt))
+    withoutMode(Mode.PatternOrTypeBits) { 
+      tryCatchCPS {
+        typedTail(tree, pt) 
+      } { k => 
+        typedTailExpr(k(tree), pt)
+      }
+    }
 
   def typedType(tree: untpd.Tree, pt: Type = WildcardType, mapPatternBounds: Boolean = false)(using Context): Tree =
     val tree1 = withMode(Mode.Type) { typed(tree, pt) }
