@@ -1832,7 +1832,7 @@ class Namer { typer: Typer =>
             // This case applies if the closure result type contains uninstantiated
             // type variables. In this case, constrain the closure result from below
             // by the parameter-capture-avoiding type of the body.
-            val rhsType = typedAheadExpr(mdef.rhs, tpt.tpe).tpe
+            val rhsType = typedAheadTailExpr(mdef.rhs, tpt.tpe).tpe
 
             // The following part is important since otherwise we might instantiate
             // the closure result type with a plain functon type that refers

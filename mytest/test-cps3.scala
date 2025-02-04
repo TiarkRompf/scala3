@@ -24,4 +24,4 @@ object Main:
     println("result: " + res.fun(x => x))
 
 
-  def test3(): CPS[Int] = 1 + bing(10) + bing(20)
+  def test3() = 1 + bing(10) + bing(20)

@@ -4320,6 +4320,17 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         && !isCpsType(pt) =>
 
         pushCPS(tree2)
+
+      // XXX DEBUGGING
+      // case Apply(b, args) 
+      //   if isCpsType(tree2.tpe) =>
+
+      //   println("DON'T PUSH "+tree2.show)
+      //   if (tree2.show.contains("=> Main.shiftUnit["))
+      //     throw new UnsupportedOperationException
+
+      //   tree2
+
       case _ => 
         tree2
     }
