@@ -3431,7 +3431,13 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       if Feature.ccEnabled && cls.isRetainsLike then
         CheckCaptures.checkWellformed(arg1, annot1)
       if arg1.isType then
-        assignType(cpy.Annotated(tree)(arg1, annot1), arg1, annot1)
+        val tpdAnnot = assignType(cpy.Annotated(tree)(arg1, annot1), arg1, annot1)
+        if (annotCls.name.show == "eff") {
+          val annot2 = eff.EffectAnnotation()
+          tpdAnnot.withType(AnnotatedType(arg1.tpe, annot2))
+        } else {
+          tpdAnnot
+        }
       else
         assert(ctx.reporter.errorsReported)
         TypeTree(UnspecifiedErrorType)
