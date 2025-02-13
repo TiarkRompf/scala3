@@ -201,11 +201,13 @@ class PostTyper extends MacroTransform with InfoTransformer { thisPhase =>
     }
 
     private def transformAnnot(annot: Annotation)(using Context): Annotation =
-      val tree1 =
-        annot match
-          case _: BodyAnnotation => annot.tree
-          case _ => copySymbols(annot.tree)
-      annot.derivedAnnotation(transformAnnotTree(tree1))
+      if annot == eff.EffectAnnotation() then annot // temporary hack - look at CC later to see how handle.
+      else
+        val tree1 =
+          annot match
+            case _: BodyAnnotation => annot.tree
+            case _ => copySymbols(annot.tree)
+        annot.derivedAnnotation(transformAnnotTree(tree1))
 
     /** Transforms all annotations in the given type. */
     private def transformAnnotsIn(using Context) =
