@@ -1,6 +1,6 @@
 package dotty.tools
 package dotc
-package eff
+package bineff
 
 import core.*
 import Types.*, Symbols.*, Contexts.*, Annotations.*

@@ -1,6 +1,6 @@
 package dotty.tools
 package dotc
-package eff
+package bineff
 
 import core.*
 import Phases.*, DenotTransformers.*, Flags.*
@@ -14,8 +14,8 @@ import Annotations.Annotation
 import NamerOps.linkConstructorParams
 
 object TrackEffects:
-  val name: String = "eff"
-  val description: String = "effect tracking"
+  val name: String = "bineff"
+  val description: String = "basic binary effect tracking"
 
   trait CheckerAPI:
     /** Complete symbol info of a val or a def */
@@ -66,16 +66,12 @@ class TrackEffects extends Recheck, SymTransformer:
       tpdValDef
 
     override def recheckDefDef(tree: tpd.DefDef, sym: Symbols.Symbol)(using Context): Type =
-      // if tree.name.show == "$anonfun" then
-      //   println(s"${tree.tpt}")
-      //   println(s"${tree.tpt.show}")
-      //   println(s"${tree.tpt.tpe}")
-      // println(s"Tree = ${tree.name.show}, Return Type = ${tree.tpt}")
+     // println(s"${tree.name.show} = ${tree.tpt}")
       val isPrimordial = tree.name.show match
         case "open" | "write" | "close" => true
         case _ => false
       inContext(linkConstructorParams(sym).withOwner(sym)):
-        val resType = if sym.isRealMethod then recheck(tree.tpt) else tree.tpt.tpe // if eta expansion then...
+        val resType = if sym.isRealMethod then recheck(tree.tpt) else tree.tpt.tpe // check res only if not eta expansion
         if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased || isPrimordial
         then resType
         else
@@ -164,8 +160,6 @@ class TrackEffects extends Recheck, SymTransformer:
       case EffectType(parent, _) if tree.isInferred => parent
       case _ => tree.tpe
 
-
-    private val setup: setupAPI = thisPhase.prev.asInstanceOf[Setup]
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       // setup.setupUnit(unit.tpdTree, this)
       // recheck(addRecheckedTypes(unit.tpdTree))
