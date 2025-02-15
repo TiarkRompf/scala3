@@ -201,7 +201,7 @@ class PostTyper extends MacroTransform with InfoTransformer { thisPhase =>
     }
 
     private def transformAnnot(annot: Annotation)(using Context): Annotation =
-      if annot == eff.EffectAnnotation() then annot // temporary hack - look at CC later to see how handle.
+      if annot == bineff.EffectAnnotation() then annot // temporary hack - look at CC later to see how handle.
       else
         val tree1 =
           annot match

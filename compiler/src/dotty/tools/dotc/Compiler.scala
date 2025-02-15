@@ -83,8 +83,8 @@ class Compiler {
          new PatternMatcher) ::      // Compile pattern matches
     List(new TestRecheck.Pre) ::     // Test only: run rechecker, enabled under -Yrecheck-test
     List(new TestRecheck) ::         // Test only: run rechecker, enabled under -Yrecheck-test
-    List(new eff.Setup) ::
-    List(new eff.TrackEffects) ::
+    List(new bineff.Setup) ::
+    List(new bineff.TrackEffects) ::
     List(new cc.Setup) ::            // Preparations for check captures phase, enabled under captureChecking
     List(new cc.CheckCaptures) ::    // Check captures, enabled under captureChecking
     List(new ElimOpaque,             // Turn opaque into normal aliases

@@ -3347,7 +3347,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       if arg1.isType then
         val tpdAnnot = assignType(cpy.Annotated(tree)(arg1, annot1), arg1, annot1)
         if (annotCls.name.show == "eff") {
-          val annot2 = eff.EffectAnnotation()
+          val annot2 = bineff.EffectAnnotation()
           tpdAnnot.withType(AnnotatedType(arg1.tpe, annot2))
         } else {
           tpdAnnot
