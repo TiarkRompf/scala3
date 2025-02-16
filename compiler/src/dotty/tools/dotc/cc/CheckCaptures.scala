@@ -274,6 +274,8 @@ class CheckCaptures extends Recheck, SymTransformer:
 
   def newRechecker()(using Context) = CaptureChecker(ctx)
 
+  override def transformSym(symd: SymDenotation)(using Context): SymDenotation = symd
+
   override def run(using Context): Unit =
     if Feature.ccEnabled then
       super.run
