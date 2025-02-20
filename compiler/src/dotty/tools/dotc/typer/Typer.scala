@@ -3345,8 +3345,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       if Feature.ccEnabled && cls.isRetainsLike then
         CheckCaptures.checkWellformed(arg1, annot1)
       import eff.CheckEffects, CheckEffects.isKillEff
-      // if cls.isKillEff then
-      //   CheckEffects.checkWellformed(arg1, annot1)
+      if cls.isKillEff then
+        CheckEffects.checkWellformed(annot1)
       if arg1.isType then
         // println(s"${tree.annot} <- tree.annot")
         // println(s"${annotCls} <- annotClass")
