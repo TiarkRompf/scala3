@@ -9,23 +9,40 @@ import Types.*, StdNames.*, Denotations.*
 import ast.tpd, tpd.*
 import transform.{PreRecheck, Recheck}
 import annotation.tailrec
-import cc.isRetainsLike
+import cc.*
 import Recheck.isUpdatedAfter
+import NamerOps.linkConstructorParams
 
 object CheckEffects:
   val name: String = "eff"
   val description: String = "effect checking"
 
   /**
-   * TODO checkWellFormed
-   * Needs to be capturing type (I believe this already enforces reference type)
-   * Must only refer to argument - this should already be checked at function decl.
-   * Would be nice to enforce annotation to only occur in function return type, but idk how.
+   * Checks that the variables inside a kill annotation are well-formed
+   * Well-formedness conditions:
+   * 1. Must be non-empty
+   * 2. Must be a capability (capturing type/retaining type)
+   * 3. Must only refer to argument of function - already checked by Typer
+   * 4. Kill annotation can only appear at function return type - idk how to check this
+   * 5. Must not be a duplicate e.g. no kill(f, f).
    */
-  // def checkWellformed(parent: Tree, ann: Tree)(using Context): Unit =
-  //   ann.killedElems.foreach: ref =>
-  //     if !ref.symbol.isRetainsLike then ()
-  //       // report.error(i"Killed variable '$ref' may not be a capability.", ref.srcPos)
+  def checkWellformed(annot: Tree)(using Context): Unit =
+    val killedElems = annot.killedElems
+    if killedElems.isEmpty then
+      report.error(i"Kill set of $annot may be empty.", annot.srcPos)
+    else
+      val killSet = util.HashSet[Symbol]()
+      for ref <- killedElems do
+        val refSym = ref.symbol
+        if !killSet.add(refSym) then
+          report.error(i"Kill set of $annot has a duplicate ref $ref", annot.srcPos)
+        ref.tpe.widen match
+          case RetainingType(_) => ()
+          case CapturingType(_) => () // I don't think these should ever exist during typer phase
+          case _ =>
+            println(ref.symbol.denot.info)
+            // TODO find more capabilities identifying info for extends capability
+            //report.error(i"Killed variable $ref may not be a capability.", ref.srcPos)
 
   extension (tree: Tree)
     /**
@@ -63,7 +80,7 @@ class CheckEffects extends Recheck, SymTransformer:
    * Problem is I have to modify capture checker + I may want to have a setup phase for effect checking
    * in the future anyways.
    *
-   * Ideal solution is to have a separate setup phase before effect checking which keeps cc sym info,
+   * Ideal solution is probably to have a separate setup phase before effect checking which keeps cc sym info,
    * so that I don't have to modify recheck.scala/capture checker.
    */
   override def preRecheckPhase: PreRecheck =
@@ -90,10 +107,13 @@ class CheckEffects extends Recheck, SymTransformer:
     *     But being global is maybe good? Should not be like environment.
     * - Extend context with new field for killed syms?
     * - Change sym denotation when it is killed?
+    *
+    * Future changes to killedSyms - make it have an owner and properly scope
     */
     private val killedSyms = util.HashSet[Symbol]()
 
     override def recheckIdent(tree: tpd.Ident, pt: Type)(using Context): Type = {
+      // println(tree.tpe.widen)
       if killedSyms.contains(tree.symbol) then
         report.error(i"Use of '${tree.symbol}' is prohibited after kill.", tree.srcPos)
       super.recheckIdent(tree, pt)
@@ -107,14 +127,38 @@ class CheckEffects extends Recheck, SymTransformer:
     }
 
     override def recheckDefDef(tree: tpd.DefDef, sym: Symbol)(using Context): Type = {
-      // println(s"${tree.name.show} = ${tree.tpt}")
-      super.recheckDefDef(tree, sym)
+      inContext(linkConstructorParams(sym).withOwner(sym)):
+        val argSyms = tree.termParamss.flatten.map(_.symbol)
+        val resType = recheck(tree.tpt)
+
+
+        val killSet = resType match
+          case EffectType(_, elems) => elems.map(_.symbol).toSet
+          case _ => Nil.toSet
+
+        // as a potentially temporary hack - i added || !sym.isRealMethod to this line
+        // this is because anonymous functions get no kill annotation inferred - but on other hand
+        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased || !sym.isRealMethod
+        then resType
+        else
+          val rhsType = recheck(tree.rhs, resType)
+          if (sym.name.toString == "$anonfun") then
+            println(resType)
+            println(rhsType)
+          for arg <- argSyms do
+            if killedSyms.contains(arg) then
+              if killSet.isEmpty then
+                report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!", tree.srcPos)
+              else if !killSet.contains(arg) then
+                report.error(i"Kill set of ${sym.name} does not contain killed argument ${arg.name}", tree.srcPos)
+          rhsType
     }
 
     override def recheckApply(tree: tpd.Apply, pt: Type)(using Context): Type = {
       val appType = super.recheckApply(tree, pt)
       appType match
-        case EffectType(parent, refs) => refs.foreach(killedSyms += _.symbol)
+        case EffectType(parent, refs) =>
+          refs.foreach(killedSyms += _.symbol)
         case _ => ()
       appType
     }
@@ -134,5 +178,7 @@ class CheckEffects extends Recheck, SymTransformer:
     //   traverse(stats)
     // }
 
+    override def checkUnit(unit: CompilationUnit)(using Context): Unit =
+      super.checkUnit(unit)
 
 
