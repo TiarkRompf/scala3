@@ -136,21 +136,22 @@ class CheckEffects extends Recheck, SymTransformer:
           case EffectType(_, elems) => elems.map(_.symbol).toSet
           case _ => Nil.toSet
 
-        // as a potentially temporary hack - i added || !sym.isRealMethod to this line
-        // this is because anonymous functions get no kill annotation inferred - but on other hand
-        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased || !sym.isRealMethod
+        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
         then resType
         else
           val rhsType = recheck(tree.rhs, resType)
-          if (sym.name.toString == "$anonfun") then
-            println(resType)
-            println(rhsType)
-          for arg <- argSyms do
-            if killedSyms.contains(arg) then
-              if killSet.isEmpty then
-                report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!", tree.srcPos)
-              else if !killSet.contains(arg) then
-                report.error(i"Kill set of ${sym.name} does not contain killed argument ${arg.name}", tree.srcPos)
+          // if (sym.name.toString == "$anonfun") then
+          //   println(resType)
+          //   println(rhsType)
+        // as a potentially temporary hack - i added || !sym.isRealMethod to this line
+        // this is because anonymous functions get no kill annotation inferred - but on other hand
+          if (sym.isRealMethod) then
+            for arg <- argSyms do
+              if killedSyms.contains(arg) then
+                if killSet.isEmpty then
+                  report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!", tree.srcPos)
+                else if !killSet.contains(arg) then
+                  report.error(i"Kill set of ${sym.name} does not contain killed argument ${arg.name}", tree.srcPos)
           rhsType
     }
 
