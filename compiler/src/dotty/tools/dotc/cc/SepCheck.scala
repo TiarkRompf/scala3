@@ -880,6 +880,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
    */
   def checkValOrDefDef(tree: ValOrDefDef)(using Context): Unit =
     if !tree.symbol.isOneOf(TermParamOrAccessor) && !isUnsafeAssumeSeparate(tree.rhs) then
+      // println(s"${tree.symbol} --------------------------------------")
       checkType(tree.tpt, tree.symbol)
       capt.println(i"sep check def ${tree.symbol}: ${tree.tpt} with ${captures(tree.tpt).hiddenSet.footprint()}")
       pushDef(tree, captures(tree.tpt).hiddenSet.deductSymRefs(tree.symbol))

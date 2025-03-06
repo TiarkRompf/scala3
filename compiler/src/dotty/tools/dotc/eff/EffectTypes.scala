@@ -9,6 +9,13 @@ import Annotations.Annotation
 import Decorators.i
 import CheckEffects.*
 
+
+/**
+  * Future work
+  * Make setup phase where we transform all effect types to
+  * annotated types with custom KillAnnotation() which has a set of refs as a params
+  */
+
 object EffectType:
   // small destructor for now
   def unapply(tp: Type)(using Context): Option[(Type, List[Tree])] =
