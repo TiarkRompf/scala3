@@ -8,23 +8,68 @@ import Contexts.*, Names.*, Flags.*, Symbols.*, Decorators.*
 import Types.*, StdNames.*, Denotations.*
 import ast.tpd, tpd.*
 import transform.{PreRecheck, Recheck}
-import annotation.tailrec
+import annotation.{tailrec, threadUnsafe}
 import cc.*
-import Recheck.isUpdatedAfter
+import Recheck.*
 import NamerOps.linkConstructorParams
 
 object CheckEffects:
   val name: String = "eff"
   val description: String = "effect checking"
 
+  extension (tree: Tree)
+    /**
+     * Given a annotation, finds its killedElems from its tree (annot.tree).
+     */
+    def killedElems(using Context): List[Tree] = tree match
+      case Apply(_, Typed(SeqLiteral(elems, _), _) :: Nil) =>
+        elems
+      case _ =>
+        Nil
+
+  var killAnnot: Option[Symbol] = None // very hacky solution for now
+
+  var useAnnot: Option[Symbol] = None
+
+  extension (sym: Symbol)
+    def isKill(using Context): Boolean =
+      killAnnot match
+        case None =>
+          killAnnot = Some(requiredClass("typestate.kill"))
+          sym == requiredClass("typestate.kill")
+        case Some(annotSym) => sym == annotSym
+
+    def isUse(using Context): Boolean =
+      useAnnot match
+        case None =>
+          useAnnot = Some(requiredClass("typestate.use"))
+          sym == requiredClass("typestate.use")
+        case Some(annotSym) => sym == annotSym
+
+    def isEff(using Context): Boolean =
+      sym.isKill || sym.isUse
+
+  extension (tp: Type)
+    def dropKill(using Context): Type = // maybe recursively drop?
+      tp match
+        case EffectType(parent, killSet) => parent
+        case _ => tp
+
+    def getKilled(using Context): List[Symbol] =
+      tp match
+        case EffectType(_, killSet) => killSet.map(_.symbol)
+        case AppliedType(tycon, args) => // it seems like AppliedTypes have more "priority" then AnnotatedTypes
+          tycon.getKilled ++ args.map(_.getKilled).flatten
+        case _ => Nil
+
   /**
    * Checks that the variables inside a kill annotation are well-formed
    * Well-formedness conditions:
    * 1. Must be non-empty
-   * 2. Must be a capability (capturing type/retaining type)
-   * 3. Must only refer to argument of function - already checked by Typer
+   * 2. Must be a capability - capturing type/retaining type/extends Capability or something in caps
+   * 3. Must only refer to argument of function - need to check this!
    * 4. Kill annotation can only appear at function return type - idk how to check this
-   * 5. Must not be a duplicate e.g. no kill(f, f).
+   * 5. No duplicates allowed e.g. no kill(f, f).
    */
   def checkWellformed(annot: Tree)(using Context): Unit =
     val killedElems = annot.killedElems
@@ -40,27 +85,19 @@ object CheckEffects:
           case RetainingType(_) => ()
           case CapturingType(_) => () // I don't think these should ever exist during typer phase
           case _ =>
-            println(ref.symbol.denot.info)
+            // println(ref.symbol.denot.info)
+            // TODO figure out how to check if class extends capability or a
             // TODO find more capabilities identifying info for extends capability
-            //report.error(i"Killed variable $ref may not be a capability.", ref.srcPos)
 
-  extension (tree: Tree)
-    /**
-     * Given a annotation, finds its killedElems from its tree (annot.tree).
-     */
-    def killedElems(using Context): List[Tree] = tree match
-      case Apply(_, Typed(SeqLiteral(elems, _), _) :: Nil) =>
-        elems
-      case _ =>
-        // report.error(i"$tree's killed elements are not well-formed!")
-        Nil
-
-  extension (sym: Symbol)
-    def isKillEff(using Context): Boolean =
-      sym.name.toString == "kill"
-
+  object EffectType:
+    def unapply(tp: Type)(using Context): Option[(Type, List[Tree])] =
+      tp match
+        case AnnotatedType(parent, annot) if annot.symbol.isKill =>
+          Some(parent, annot.tree.killedElems)
+        case _ => None
 end CheckEffects
 
+/*
 class CheckEffects extends Recheck, SymTransformer:
   thisPhase =>
 
@@ -92,14 +129,8 @@ class CheckEffects extends Recheck, SymTransformer:
 
   def newRechecker()(using Context): Rechecker = EffectChecker(ctx)
 
-  /**
-   * Problem - how to deal with aliasing
-   * Possible solution? Since we enforce only capabilities are tracked, any alias of the
-   * capabilitiy will have the capability in its capture set, and maybe can use subcapturing?.
-   * e.g. val f = new File() is cap, then f2 = f would be File^{f}, so maybe we can check if
-   * capture set of f2 = {f} <: {f} = singleton capture set of f (not capture set of f since that is {cap}).
-   */
   class EffectChecker(ictx: Context) extends Rechecker(ictx):
+    import CheckEffects.*
   /**
     * We will need some sort of killed variables data structures:
     * - Have killed syms set
@@ -119,39 +150,64 @@ class CheckEffects extends Recheck, SymTransformer:
       super.recheckIdent(tree, pt)
     }
 
+    /**
+     * Setup phase before effect checking (and capture checking)
+     * We only want in kill effect annotation in this position
+     * A => B @kill
+     * This should be checked in typer.
+     *
+     * But sometimes in inference @kill may naturally arise in val pos
+     * for example
+     *
+     * def open() @kill = ...
+     *
+     * val o = open() // o will have inferred type with @kill
+     *
+     * we want to strip those?
+     */
     override def recheckValDef(tree: tpd.ValDef, sym: Symbol)(using Context): Type = {
-      // if redeclaration of killed val, then have to remove from killedSyms
-      // nvm redeclarated val is different sym! so nice!
-      // println(s"${sym.denot.info} <- ${sym.show}")
       super.recheckValDef(tree, sym)
     }
 
     override def recheckDefDef(tree: tpd.DefDef, sym: Symbol)(using Context): Type = {
+      println(tree.rhs)
       inContext(linkConstructorParams(sym).withOwner(sym)):
         val argSyms = tree.termParamss.flatten.map(_.symbol)
         val resType = recheck(tree.tpt)
+        // println(s"${tree.tpe.widen} <- ${sym.name.show}")
 
-
-        val killSet = resType match
-          case EffectType(_, elems) => elems.map(_.symbol).toSet
-          case _ => Nil.toSet
+        // if (sym.name.toString == "HO") then
+        //   tree.termParamss.flatten.foreach(param => println(param.asInstanceOf)) // valdef with no rhs
 
         if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
         then resType
         else
           val rhsType = recheck(tree.rhs, resType)
-          // if (sym.name.toString == "$anonfun") then
-          //   println(resType)
-          //   println(rhsType)
-        // as a potentially temporary hack - i added || !sym.isRealMethod to this line
-        // this is because anonymous functions get no kill annotation inferred - but on other hand
           if (sym.isRealMethod) then
-            for arg <- argSyms do
-              if killedSyms.contains(arg) then
-                if killSet.isEmpty then
-                  report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!", tree.srcPos)
-                else if !killSet.contains(arg) then
-                  report.error(i"Kill set of ${sym.name} does not contain killed argument ${arg.name}", tree.srcPos)
+            tree.tpt match
+              case _: InferredTypeTree =>
+                for arg <- argSyms do
+                  if killedSyms.contains(arg) then
+                    report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!",
+                    tree.srcPos)
+              case _ =>
+                val killSet = resType match
+                  case EffectType(_, elems) => elems.map(_.symbol).toSet
+                  case _ => Nil.toSet
+
+                for arg <- argSyms do
+                  if killedSyms.contains(arg) then
+                    if killSet.isEmpty then
+                      report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!",
+                      tree.srcPos)
+                    else if !killSet.contains(arg) then
+                      report.error(i"Kill set of ${sym.name} does not contain killed argument ${arg.name}",
+                      tree.srcPos)
+
+          // if (sym.name.toString == "$anonfun") then
+          //   println(tree.tpt.asInstanceOf[TypeTree].isInferred)
+          //   println(tree.tpt.tpe)
+            // println(tree.tpe.widen)
           rhsType
     }
 
@@ -179,7 +235,10 @@ class CheckEffects extends Recheck, SymTransformer:
     //   traverse(stats)
     // }
 
+    override def recheckTypeTree(tree: tpd.TypeTree)(using Context): Type =
+      tree.nuType
+
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       super.checkUnit(unit)
-
+*/
 

@@ -3430,8 +3430,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       val cls = annot1.symbol.maybeOwner
       if Feature.ccEnabled && cls.isRetainsLike then
         CheckCaptures.checkWellformed(arg1, annot1)
-      import eff.CheckEffects, CheckEffects.isKillEff
-      if cls.isKillEff then
+      import eff.CheckEffects, CheckEffects.isKill
+      if cls.isKill then
         CheckEffects.checkWellformed(annot1)
       if arg1.isType then
         // println(s"${tree.annot} <- tree.annot")
