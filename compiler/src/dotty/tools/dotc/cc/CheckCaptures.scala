@@ -285,6 +285,9 @@ class CheckCaptures extends Recheck, SymTransformer:
 
   class CaptureChecker(ictx: Context) extends Rechecker(ictx), CheckerAPI:
 
+    // comment this out for original capture checker
+    override def keepNuTypes(using Context): Boolean = true
+
     /** The current environment */
     private val rootEnv: Env = inContext(ictx):
       Env(defn.RootClass, EnvKind.Regular, CaptureSet.empty, null)
