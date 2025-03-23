@@ -237,6 +237,9 @@ class CheckCaptures extends Recheck, SymTransformer:
 
   class CaptureChecker(ictx: Context) extends Rechecker(ictx), CheckerAPI:
 
+    // comment this out for original capture checker
+    override def keepNuTypes(using Context): Boolean = true
+
     // println(i"checking ${ictx.source}"(using ictx))
 
     /** The current environment */
