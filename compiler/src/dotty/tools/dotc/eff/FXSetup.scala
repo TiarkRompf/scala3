@@ -55,7 +55,22 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                   def complete(denot: SymDenotation)(using Context): Unit =
                     assert(ctx.phase == thisPhase.next, i"$sym")
                     denot.info = newInfo
-                    denot.info = checker.recheckDef(tree, sym)
+                    denot.info = newInfo.derivedFunctionOrMethod(params, checker.recheckDef(tree, sym))
+                    // checker.recheckDef(tree, sym)
+                    // denot.info = fntpe
+                    // if (sym.isAnonymousFunction) then
+                    //   // println(s"${sym.show}")
+                    //   val nymph = newInfo.asInstanceOf[MethodType].resType.stripAnnots
+                    //   val fres = forcedRes.tpe.stripAnnots
+                    //   //println(fres.asInstanceOf[TypeRef].prefix.asInstanceOf[TermRef].designator)
+
+                    //   // println(fres)
+                    //   // println(nymph)
+                    //   // println(fres <:< nymph)
+                    //   // println(nymph <:< fres)
+                    //   // // println(s"${newInfo.asInstanceOf[MethodType].resType <:< forcedRes.tpe}")
+                    //   // // println(s"${forcedRes.tpe <:< newInfo.asInstanceOf[MethodType].resType}")
+                    //   // println("--------------------------------------------------------")
                 updateInfo(sym, updatedInfo)
               case tp =>
                 println(s"${tp} <- ${sym.show}")

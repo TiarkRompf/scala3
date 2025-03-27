@@ -10,6 +10,7 @@ import ast.tpd, tpd.*
 import transform.{PreRecheck, Recheck}
 import annotation.{tailrec, threadUnsafe}
 import cc.*
+import CaptureSet.*
 import Recheck.*
 import NamerOps.linkConstructorParams
 import util.SimpleIdentitySet
@@ -112,15 +113,18 @@ object CheckEffects:
           Some(parent, annot.tree.killedElems)
         case _ => None
 
-  case class KillAnnotation(refs: SimpleIdentitySet[Symbol])(annot: Annotation) extends Annotation:
-    def tree(using Context): Tree = annot.tree
-
   trait FXCheckerAPI:
     def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type
 
 end CheckEffects
 
-
+/**
+ * TODO:
+ * 1. In setup - have a symtransformer that transforms every kill effect into a
+ *  Kill Annotation, which will either take in a capture set or a Refs. Make sure that this
+ * kill annotation does not have any special capabilities in it (special as defined in CaptureRef).
+ * 2. For sym denotations from capture checker, have methods which call cc methods, but atPhase(CCPhase)
+ */
 class CheckEffects extends Recheck:
   thisPhase =>
 
@@ -134,31 +138,115 @@ class CheckEffects extends Recheck:
 
   def newRechecker()(using Context): Rechecker =
     var unit = ctx.compilationUnit
-    val ccTypes = unit.tpdTree.getAttachment(RecheckedTypes).getOrElse(
-      assert(false, "There should be new types after capture checking!")
-    )
-    EffectChecker(ctx, ccTypes)
+    val ccPhase = checkCapturesPhase.asInstanceOf[CheckCaptures]
+    val cc = ccPhase.checker match
+      case null => assert(false, "Internal Error: Checker not assigned at CheckEffects!")
+      case checker => checker
+    EffectChecker(ctx, cc)
 
-  class EffectChecker(ictx: Context, ccTypes: util.EqHashMap[Tree, Type]) extends Rechecker(ictx), FXCheckerAPI:
+  class EffectChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
     import CheckEffects.*
+    import cc.*
 
-    private val killedSyms = util.HashSet[Symbol]()
+    private val killed = util.HashSet[CaptureRef]()
 
-    private val keepNuTypes = true
+    private val keepNuTypes = false
 
     private val setup: FXSetupAPI = thisPhase.prev.asInstanceOf[FXSetup]
 
-    extension[T <: Tree](tree: T)
-      def ccType =
-        val ntpe = ccTypes.lookup(tree)
-        if ntpe != null then ntpe else tree.tpe
+    private val completed = new collection.mutable.HashSet[Symbol]
 
-    override def recheckDefDef(tree: tpd.DefDef, sym: Symbol)(using Context): Type =
-      EffectType(sym.info, Nil)
+    override def skipRecheck(sym: Symbol)(using Context): Boolean =
+      completed.contains(sym)
+
+    extension [T <: Tree](tree: T)
+      def hasCCType: Boolean = cc.hasNuType(tree)
+      def ccType(using Context): Type = cc.nuType(tree)
+
+    extension (refs: Refs)
+      private def footprint(using Context): Refs =
+        def recur(elems: Refs, newElems: List[CaptureRef]): Refs = newElems match
+          case newElem :: newElems1 =>
+            val superElems = newElem.captureSetOfInfo.elems.filter: superElem =>
+              !superElem.isMaxCapability && !elems.contains(superElem)
+            recur(elems ++ superElems, newElems1 ++ superElems.toList)
+          case Nil => elems
+        val elems: Refs = refs.filter(!_.isMaxCapability)
+        recur(elems, elems.toList)
+
+    override def recheckIdent(tree: Ident, pt: Type)(using Context): Type =
+      val used = tree.markedFree
+      if !used.elems.isEmpty then
+        val usedFootprint = used.elems.footprint
+        for ref <- usedFootprint do
+          val stripped = ref.stripReach.stripReadOnly.stripMaybe
+          if killed.contains(stripped) then
+            report.error(i"Use of ${tree} is forbidden.\nIt captures ${ref} which is killed.", tree.srcPos)
+      super.recheckIdent(tree, pt)
+
+    override def recheckValDef(tree: ValDef, sym: Symbol)(using Context): Type =
+      super.recheckValDef(tree, sym)
+
+    override def recheckDefDef(tree: DefDef, sym: Symbol)(using Context): Type =
+      val (paramInfos, resInfo) = sym.info match
+        case FunctionOrMethod(paramInfos, resInfo) => (paramInfos, resInfo)
+        case _ => println(s"${sym.info} <- ${sym}, is not a method type!")
+          assert(false)
+
+      val resTree = tree.tpt
+      val paramRefs = tree.termParamss.flatten.flatMap(_.toCaptureRefs)
+      val formalDead = resTree.tpe match
+        case EffectType(_, refs) =>
+          refs.flatMap(_.toCaptureRefs)
+        case _ => Nil
+
+      // println(s"${sym.show}")
+      // println(resInfo == resTree.tpe)
+      // println(resInfo)
+      // println(resTree.tpe)
+
+      def accountsFor() =
+        for param <- paramRefs do
+          if killed.contains(param) then
+            if formalDead.isEmpty then
+              report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
+              tree.srcPos)
+            else if !formalDead.contains(param) then
+              report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
+              tree.srcPos)
+
+      inContext(linkConstructorParams(sym).withOwner(sym)):
+        val resType = recheck(resTree)
+        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
+        then resType
+        else
+          val _ = recheck(tree.rhs, resType)
+          resTree match
+            case _: InferredTypeTree =>
+              resInfo
+            case _ =>
+              accountsFor()
+              resInfo
+
+    // override def recheckFinish(tpe: Type, tree: Tree, pt: Type)(using Context): Type = tpe
+
+    override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
+      val appType = super.recheckApply(tree, pt)
+      appType match
+        case EffectType(_, refs) =>
+          val deadRefs = SimpleIdentitySet(refs.flatMap(_.toCaptureRefs)*).footprint
+          for ref <- deadRefs do
+            killed += ref.stripReach.stripMaybe.stripReadOnly
+        case _ =>
+      appType.dropTopLevelKill
+
+    override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
+      try super.recheckDef(tree, sym)
+      finally completed += sym
 
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       unit.tpdTree = setup.setupUnit(unit.tpdTree, this)
-      denotPrinter().traverse(unit.tpdTree)
+      // denotPrinter().traverse(unit.tpdTree)
       super.checkUnit(unit)
       unit.tpdTree.removeAttachment(RecheckedTypes)
 
