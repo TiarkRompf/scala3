@@ -24,7 +24,8 @@ object File:
     val file = new File(name):
       type isClosed = Int
       type isOpen = Int
-    body(file)(0)._1
+    val ref = 0
+    body(file)(ref)._1
 
 object Main:
   import File.*
@@ -32,26 +33,27 @@ object Main:
     withFile("a.txt") { (f) => (c) =>
       val o = open(f, c)
       val o2 = o
+      val o3 = o2
 
-      val msg = read(f, o)
+      val msg = read(f, o3)
+      write(f, "Hello World", o3)
+      val c2 = close(f, o3)
+
       write(f, "Hello World", o)
-      val c2 = close(f, o)
-
-      // write(f, o, "Hello World")
       (msg, c2)
     }
 
-  def test2(messages: List[String]) =
-    withFile("a.txt") { (f) => (c) =>
-      val o = open(f, c)
+  // def test2(messages: List[String]) =
+  //   withFile("a.txt") { (f) => (c) =>
+  //     val o = open(f, c)
 
-      for msg <- messages do
-        write(f, msg, o)
+  //     for msg <- messages do
+  //       write(f, msg, o)
 
-      messages.foreach(msg => write(f, msg, o))
+  //     messages.foreach(msg => write(f, msg, o))
 
-      val c2 = close(f, o)
-      ((), c2)
-    }
+  //     val c2 = close(f, o)
+  //     ((), c2)
+  //   }
 
 

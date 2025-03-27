@@ -761,7 +761,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
   private def traverseApply(tree: Tree, argss: List[List[Tree]])(using Context): Unit = tree match
     case app @ Apply(fn, args) =>
       traverseApply(fn, args :: argss)
-      checkKillApp(app, (args :: argss).flatten)
+      // checkKillApp(app, (args :: argss).flatten)
     case TypeApply(fn, args) => traverseApply(fn, argss) // skip type arguments
     case _ =>
       if argss.nestedExists(_.needsSepCheck) then
