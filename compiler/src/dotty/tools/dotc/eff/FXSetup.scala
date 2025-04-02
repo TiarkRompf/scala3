@@ -12,6 +12,7 @@ import transform.{MacroTransform, PreRecheck, Recheck}
 import Recheck.*
 import cc.*
 import CheckEffects.*
+import NamerOps.{methodType}
 
 trait FXSetupAPI:
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree
@@ -28,7 +29,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   override def phaseName: String = FXSetup.name
   override def description: String = FXSetup.description
 
-  override def isRunnable(using Context): Boolean = true
+  override def isRunnable(using Context): Boolean = super.isRunnable
   override def changesBaseTypes: Boolean = true
 
   override def transformSym(symd: SymDenotation)(using Context): SymDenotation = symd
@@ -39,6 +40,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
     // toBeUpdated -= sym
 
   class SetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
+    import checker.*
     override def transform(tree: Tree)(using Context): Tree = tree match
       case tree @ DefDef(name, paramss, tpt, rhs) =>
         val sym = tree.symbol
@@ -46,6 +48,8 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
         // I also want this to fail at run-time if its not the case
         val forcedRes = tpt.asInstanceOf[TypeTree]
         if forcedRes.isInferred && !sym.isConstructor then
+          val droppedRes = forcedRes.tpe.dropAllKill
+          val newTree = super.transform(cpy.DefDef(tree)(name, paramss, tpt.withType(droppedRes),rhs))
           sym.info match
               // todo: maybe too powerful?
               // maybe only MethodType and PolyType?
@@ -55,27 +59,13 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                   def complete(denot: SymDenotation)(using Context): Unit =
                     assert(ctx.phase == thisPhase.next, i"$sym")
                     denot.info = newInfo
-                    denot.info = newInfo.derivedFunctionOrMethod(params, checker.recheckDef(tree, sym))
-                    // checker.recheckDef(tree, sym)
-                    // denot.info = fntpe
-                    // if (sym.isAnonymousFunction) then
-                    //   // println(s"${sym.show}")
-                    //   val nymph = newInfo.asInstanceOf[MethodType].resType.stripAnnots
-                    //   val fres = forcedRes.tpe.stripAnnots
-                    //   //println(fres.asInstanceOf[TypeRef].prefix.asInstanceOf[TermRef].designator)
-
-                    //   // println(fres)
-                    //   // println(nymph)
-                    //   // println(fres <:< nymph)
-                    //   // println(nymph <:< fres)
-                    //   // // println(s"${newInfo.asInstanceOf[MethodType].resType <:< forcedRes.tpe}")
-                    //   // // println(s"${forcedRes.tpe <:< newInfo.asInstanceOf[MethodType].resType}")
-                    //   // println("--------------------------------------------------------")
+                    val newResType = recheckDef(newTree.asInstanceOf[DefDef], sym)
+                    // TODO - instead of making new methodType, try to do something like integrateRT?
+                    denot.info = methodType(sym.paramSymss, newResType, false)
                 updateInfo(sym, updatedInfo)
               case tp =>
                 println(s"${tp} <- ${sym.show}")
-          val droppedRes = forcedRes.tpe.dropAllKill
-          super.transform(cpy.DefDef(tree)(name, paramss, tpt.withType(droppedRes),rhs))
+          newTree
         else
           super.transform(tree)
       case tree @ TypeApply(fn, args) =>
@@ -108,4 +98,5 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
 
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree =
     atPhase(thisPhase)(SetupTransformer(checker).transform(tree))
+
 end FXSetup

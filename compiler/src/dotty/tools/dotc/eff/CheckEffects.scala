@@ -12,9 +12,10 @@ import annotation.{tailrec, threadUnsafe}
 import cc.*
 import CaptureSet.*
 import Recheck.*
-import NamerOps.linkConstructorParams
+import NamerOps.{linkConstructorParams, methodType}
 import util.SimpleIdentitySet
 import Annotations.*
+import dotty.tools.dotc.typer.ErrorReporting.Addenda
 
 object CheckEffects:
   val name: String = "eff"
@@ -57,20 +58,47 @@ object CheckEffects:
             mapOver(t)
       tm(tp)
 
+    /**
+     * Drops all non-kill annotations
+     */
+    def dropAllNotKill(using Context): Type =
+      val tm = new TypeMap:
+        def apply(t: Type) = t match
+          case AnnotatedType(parent, annot) if !annot.symbol.isKill =>
+            apply(parent)
+          case _ =>
+            mapOver(t)
+      tm(tp)
+
     def dropTopLevelKill(using Context): Type = // maybe recursively drop?
       tp match
         case EffectType(parent, killSet) => parent
         case _ => tp
 
-    def getKilled(using Context): List[Symbol] =
+    def getKilled(using Context): List[Tree] =
       tp match
-        case EffectType(_, killSet) => killSet.map(_.symbol)
+        case EffectType(_, killSet) => killSet
         case _ => Nil
 
     def getKillAnnot(using Context): Option[Annotation] =
       tp match
         case AnnotatedType(parent, annot) if annot.symbol.isKill => Some(annot)
         case _ => None
+
+    def isKillFun(using Context): Boolean =
+      tp match
+        case fntpe @ FunctionOrMethod(_, EffectType(_, _)) => true
+        case _ => false
+
+    def isEffType(using Context): Boolean =
+      tp match
+        case EffectType(_) => true
+        case _ => false
+
+  extension (ref: CaptureRef)
+    def killTree(using Context): Tree =
+      import ast.untpd
+      untpd.Ident(ref.termSymbol.name).withType(ref)
 
   /**
    * Checks that the variables inside a kill annotation are well-formed
@@ -115,6 +143,19 @@ object CheckEffects:
 
   trait FXCheckerAPI:
     def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type
+  end FXCheckerAPI
+
+  private var CheckEffectsPhase: Phase | Null = null // need to find better than this hack
+
+  def isEffCheckingOrSetup(using Context): Boolean =
+    val effId = CheckEffectsPhase match
+      case null =>
+        CheckEffectsPhase = ctx.base.allPhases.find(_.phaseName == "eff").getOrElse(NoPhase)
+        CheckEffectsPhase.nn.id
+      case phase =>
+        phase.id
+    val ctxId = ctx.phaseId
+    ctxId == effId || ctxId == effId - 1
 
 end CheckEffects
 
@@ -134,13 +175,14 @@ class CheckEffects extends Recheck:
 
   override def description: String = CheckEffects.description
 
-  override def isRunnable(using Context) = true
+  override def isRunnable(using Context) = super.isRunnable
 
   def newRechecker()(using Context): Rechecker =
     var unit = ctx.compilationUnit
     val ccPhase = checkCapturesPhase.asInstanceOf[CheckCaptures]
     val cc = ccPhase.checker match
-      case null => assert(false, "Internal Error: Checker not assigned at CheckEffects!")
+      case null =>
+        assert(false, s"Internal Error: Capture Checker not assigned at CC Phase.")
       case checker => checker
     EffectChecker(ctx, cc)
 
@@ -184,54 +226,70 @@ class CheckEffects extends Recheck:
             report.error(i"Use of ${tree} is forbidden.\nIt captures ${ref} which is killed.", tree.srcPos)
       super.recheckIdent(tree, pt)
 
+    // TODO: ValDef inference
     override def recheckValDef(tree: ValDef, sym: Symbol)(using Context): Type =
       super.recheckValDef(tree, sym)
 
     override def recheckDefDef(tree: DefDef, sym: Symbol)(using Context): Type =
       val (paramInfos, resInfo) = sym.info match
-        case FunctionOrMethod(paramInfos, resInfo) => (paramInfos, resInfo)
-        case _ => println(s"${sym.info} <- ${sym}, is not a method type!")
+        case fntpe @ FunctionOrMethod(paramInfos, resInfo) => (paramInfos, resInfo)
+        case _ =>
+          println(s"${sym.info} <- ${sym}, is not a method type!")
           assert(false)
 
       val resTree = tree.tpt
       val paramRefs = tree.termParamss.flatten.flatMap(_.toCaptureRefs)
-      val formalDead = resTree.tpe match
+
+      inContext(linkConstructorParams(sym).withOwner(sym)):
+        val resType = recheck(resTree) // totally unnecessary
+        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
+        then resType
+        else
+          val rhsType = recheck(tree.rhs, resType)
+          resTree match
+            case _: InferredTypeTree =>
+              inferDefDef(tree, sym, rhsType, paramRefs)
+            case _ =>
+              checkExplicitDefDef(tree, sym, resType, paramRefs)
+    end recheckDefDef
+
+    /**
+     * Plan - do inference on the tree.tpt and return new inferred, but then
+     * in FXSetup when constructing the new MethodType integrate the params
+     * into the EffectType()
+     */
+    def inferDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
+      val killedParams =
+        for param <- params if killed.contains(param)
+        yield param.killTree
+
+      if !killedParams.isEmpty then
+        EffectType(resType, killedParams)
+      else resType
+    end inferDefDef
+
+    def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
+      val formalDead = resType match
         case EffectType(_, refs) =>
           refs.flatMap(_.toCaptureRefs)
         case _ => Nil
 
-      // println(s"${sym.show}")
-      // println(resInfo == resTree.tpe)
-      // println(resInfo)
-      // println(resTree.tpe)
+      for param <- params do
+        if killed.contains(param) then
+          if formalDead.isEmpty then
+            report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
+            tree.srcPos)
+          else if !formalDead.contains(param) then
+            report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
+            tree.srcPos)
 
-      def accountsFor() =
-        for param <- paramRefs do
-          if killed.contains(param) then
-            if formalDead.isEmpty then
-              report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
-              tree.srcPos)
-            else if !formalDead.contains(param) then
-              report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
-              tree.srcPos)
-
-      inContext(linkConstructorParams(sym).withOwner(sym)):
-        val resType = recheck(resTree)
-        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
-        then resType
-        else
-          val _ = recheck(tree.rhs, resType)
-          resTree match
-            case _: InferredTypeTree =>
-              resInfo
-            case _ =>
-              accountsFor()
-              resInfo
-
-    // override def recheckFinish(tpe: Type, tree: Tree, pt: Type)(using Context): Type = tpe
+      // TODO use intersection to check dead result
+      resType
+    end checkExplicitDefDef
 
     override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
       val appType = super.recheckApply(tree, pt)
+
       appType match
         case EffectType(_, refs) =>
           val deadRefs = SimpleIdentitySet(refs.flatMap(_.toCaptureRefs)*).footprint
@@ -240,9 +298,31 @@ class CheckEffects extends Recheck:
         case _ =>
       appType.dropTopLevelKill
 
+    override def recheckClosureBlock(mdef: DefDef, expr: Closure, pt: Type)(using Context): Type =
+        val sym = mdef.symbol
+        sym.ensureCompleted() // unnecessary
+
+        val newTpe = sym.info match
+        case fntpe @ FunctionOrMethod(params, resType) =>
+          if (fntpe.isKillFun) then
+            recheckClosure(expr, pt, forceDependent = true)
+          else
+            recheckClosure(expr, pt, forceDependent = false)
+        case tp =>
+          println(s"${tp} <- ${mdef.name.show}")
+          recheckClosure(expr, pt, forceDependent = false)
+
+        expr.setNuType(newTpe)
+        newTpe
+
     override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
       try super.recheckDef(tree, sym)
       finally completed += sym
+
+    // TODO better error messaging for this?
+    override def checkConformsExpr(actual: Type, expected: Type, tree: tpd.Tree, addenda: Addenda)(using Context): Type =
+      val act = super.checkConformsExpr(actual, expected, tree, addenda)
+      act
 
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       unit.tpdTree = setup.setupUnit(unit.tpdTree, this)
