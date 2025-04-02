@@ -25,6 +25,7 @@ import annotation.constructorOnly
 import cc.*
 import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
+import eff.CheckEffects.*
 
 /** Provides methods to compare types.
  */
@@ -687,6 +688,49 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   && isSubInfo(info1, parent2)
               case _ =>
                 isSubType(info1, info2)
+
+            if defn.isFunctionType(tp2) then
+              if tp2.derivesFrom(defn.PolyFunctionClass) then
+                return isSubInfo(tp1.member(nme.apply).info, tp2.refinedInfo)
+              else
+                tp1w.widenDealias match
+                  case tp1: RefinedType =>
+                    return isSubInfo(tp1.refinedInfo, tp2.refinedInfo)
+                  case _ =>
+          end if
+
+          if isEffCheckingOrSetup then
+            def isSubInfo(info1: Type, info2: Type): Boolean = (info1, info2) match
+              // for poly should be like PolyType(args, MethodType(...))
+              case (info1: PolyType, info2: PolyType) =>
+                info1.paramNames.hasSameLengthAs(info2.paramNames)
+                && isSubInfo(info1.resultType, info2.resultType.subst(info2, info1))
+
+              /*
+              * info1 <: info2 if info1 has no effect and info2 has effect
+              * if info1 has kill eff, we want to check that killset(info1) \subseteq killset(info2)
+              * idea:
+              * substitute info2's param refs into info1 to make substInfo1
+              * get killset of substInfo1
+              * get killset of info2
+              *
+              * then check if substInfo1 \subset info2
+              */
+              case (info1: MethodType, info2: MethodType) =>
+                if info1.resultType.isEffType then
+                  val substInfo1 = info1.resultType.subst(info1, info2)
+                  val killSet1 = substInfo1.getKilled.map(_.tpe).toSet
+                  val killSet2 = info2.resultType.getKilled.map(_.tpe).toSet
+
+                  killSet1.subsetOf(killSet2) &&
+                    matchingMethodParams(info1, info2) &&
+                    isSubInfo(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+                else
+                  matchingMethodParams(info1, info2) &&
+                  isSubInfo(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+              case _ =>
+                isSubType(info1, info2)
+            end isSubInfo
 
             if defn.isFunctionType(tp2) then
               if tp2.derivesFrom(defn.PolyFunctionClass) then
@@ -2300,7 +2344,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
             val paramsMatch =
               if precise then
                 isSameTypeWhenFrozen(formal1, formal2a)
-              else if isCaptureCheckingOrSetup then
+              else if isCaptureCheckingOrSetup || isEffCheckingOrSetup then
                 // allow to constrain capture set variables
                 isSubType(formal2a, formal1)
               else
