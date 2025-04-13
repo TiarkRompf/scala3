@@ -434,7 +434,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
   private def checkApply(fn: Tree, args: List[Tree], deps: collection.Map[Tree, List[Tree]])(using Context): Unit =
     val fnCaptures = methPart(fn) match
       case Select(qual, _) => qual.nuType.captureSet
-      case _ => CaptureSet.empty
+      case _ => fn.symbol.captureVars // CaptureSet.empty
     capt.println(i"check separate $fn($args), fnCaptures = $fnCaptures, argCaptures = ${args.map(arg => CaptureSet(formalCaptures(arg)))}, deps = ${deps.toList}")
     var footprint = fnCaptures.elems.footprint
     val footprints = mutable.ListBuffer[(Refs, Int)]((footprint, 0))
@@ -761,7 +761,6 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
   private def traverseApply(tree: Tree, argss: List[List[Tree]])(using Context): Unit = tree match
     case app @ Apply(fn, args) =>
       traverseApply(fn, args :: argss)
-      // checkKillApp(app, (args :: argss).flatten)
     case TypeApply(fn, args) => traverseApply(fn, argss) // skip type arguments
     case _ =>
       if argss.nestedExists(_.needsSepCheck) then
@@ -840,16 +839,6 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
         for arg <- argSyms do
           if killedSyms.contains(arg) then
             if formalDead.isEmpty then
-              // println(s"${tree.show}")
-              // tree.tpt.tpe match
-              //   case AppliedType(tycon, args) =>
-              //     println(tycon)
-              //     for arg <- args do
-              //       arg match
-              //         case EffectType(parent, elems) => println(elems)
-              //         case _ => println(arg)
-              //   case _ => println(tree.tpt.tpe)
-              // println(formalDead)
               report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!",
               tree.srcPos)
             else if !formalDead.contains(arg) then
@@ -874,8 +863,6 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
     if isUnsafeAssumeSeparate(tree) then return
     checkUse(tree)
     tree match
-      case tree: Ident =>
-        checkKilled(tree)
       case tree @ Select(qual, _) if tree.symbol.is(Method) && tree.symbol.hasAnnotation(defn.ConsumeAnnot) =>
         traverseChildren(tree)
         checkConsumedRefs(
@@ -901,8 +888,6 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
         withFreshConsumed:
           traverseChildren(tree)
         checkValOrDefDef(tree)
-        checkDeadRes(tree)
-        checkResConforms(tree)
       case If(cond, thenp, elsep) =>
         traverse(cond)
         val thenConsumed = consumed.segment(traverse(thenp))

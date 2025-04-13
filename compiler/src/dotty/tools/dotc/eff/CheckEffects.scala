@@ -226,16 +226,25 @@ class CheckEffects extends Recheck:
             report.error(i"Use of ${tree} is forbidden.\nIt captures ${ref} which is killed.", tree.srcPos)
       super.recheckIdent(tree, pt)
 
-    // TODO: ValDef inference
     override def recheckValDef(tree: ValDef, sym: Symbol)(using Context): Type =
-      super.recheckValDef(tree, sym)
+      val resTree = tree.tpt
+      val resType = recheck(tree.tpt)
+      def isUninitWildcard = tree.rhs match
+        case Ident(nme.WILDCARD) => tree.symbol.is(Mutable)
+        case _ => false
+      if tree.rhs.isEmpty || isUninitWildcard || !sym.exists || sym.is(Module) then resType
+      else
+        resTree match
+          case _: InferredTypeTree =>
+            recheck(tree.rhs, WildcardType) // we infer!
+          case _ =>
+            recheck(tree.rhs, resType)
 
     override def recheckDefDef(tree: DefDef, sym: Symbol)(using Context): Type =
-      val (paramInfos, resInfo) = sym.info match
-        case fntpe @ FunctionOrMethod(paramInfos, resInfo) => (paramInfos, resInfo)
+      sym.info match
+        case FunctionOrMethod(_, _) =>
         case _ =>
           println(s"${sym.info} <- ${sym}, is not a method type!")
-          assert(false)
 
       val resTree = tree.tpt
       val paramRefs = tree.termParamss.flatten.flatMap(_.toCaptureRefs)
@@ -245,7 +254,7 @@ class CheckEffects extends Recheck:
         if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
         then resType
         else
-          val rhsType = recheck(tree.rhs, resType)
+          val rhsType = recheck(tree.rhs, WildcardType) // we just discard what type the typer gave
           resTree match
             case _: InferredTypeTree =>
               inferDefDef(tree, sym, rhsType, paramRefs)
