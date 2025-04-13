@@ -685,11 +685,11 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           end if
 
           if isEffCheckingOrSetup then
-            def isSubInfo(info1: Type, info2: Type): Boolean = (info1, info2) match
+            def isSubEff(info1: Type, info2: Type): Boolean = (info1, info2) match
               // for poly should be like PolyType(args, MethodType(...))
               case (info1: PolyType, info2: PolyType) =>
                 info1.paramNames.hasSameLengthAs(info2.paramNames)
-                && isSubInfo(info1.resultType, info2.resultType.subst(info2, info1))
+                && isSubEff(info1.resultType, info2.resultType.subst(info2, info1))
 
               /*
               * info1 <: info2 if info1 has no effect and info2 has effect
@@ -709,21 +709,21 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
 
                   killSet1.subsetOf(killSet2) &&
                     matchingMethodParams(info1, info2) &&
-                    isSubInfo(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+                    isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
                 else
                   matchingMethodParams(info1, info2) &&
-                  isSubInfo(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+                  isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
               case _ =>
                 isSubType(info1, info2)
-            end isSubInfo
+            end isSubEff
 
             if defn.isFunctionType(tp2) then
               if tp2.derivesFrom(defn.PolyFunctionClass) then
-                return isSubInfo(tp1.member(nme.apply).info, tp2.refinedInfo)
+                return isSubEff(tp1.member(nme.apply).info, tp2.refinedInfo)
               else
                 tp1w.widenDealias match
                   case tp1: RefinedType =>
-                    return isSubInfo(tp1.refinedInfo, tp2.refinedInfo)
+                    return isSubEff(tp1.refinedInfo, tp2.refinedInfo)
                   case _ =>
           end if
 
@@ -1472,7 +1472,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           canConstrain(param2) && canInstantiate(param2) ||
           compareLower(bounds(param2), tyconIsTypeRef = false)
         case tycon2: TypeRef =>
-          isMatchingApply(tp1)
+          val normalComp = isMatchingApply(tp1)
           || byGadtBounds
           || defn.isCompiletimeAppliedType(tycon2.symbol)
               && compareCompiletimeAppliedType(tp2, tp1, fromBelow = true)
@@ -1487,6 +1487,20 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                 case _ =>
                   fourthTry
           || tryLiftedToThis2
+
+          if isEffCheckingOrSetup then
+              // if expected type is not dependent function type e.g. File^ => Unit
+              // and actual type is dependent function type with kill type e.g. (f: File^) => Unit @kill(f)
+              // then it should fail - in this case expected type is just an AppliedType
+              if defn.isFunctionType(tp2) then
+                tp1.widen match // maybe should be widenDealias?
+                  case tp1w: RefinedType =>
+                    if tp1w.refinedInfo.isKillFun then
+                      false
+                    else normalComp // maybe we need to recurse further
+                  case _ => normalComp
+              else normalComp
+          else normalComp
 
         case tv: TypeVar =>
           if tv.isInstantiated then

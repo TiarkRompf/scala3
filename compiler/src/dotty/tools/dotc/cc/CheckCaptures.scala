@@ -210,6 +210,9 @@ object CheckCaptures:
       /** The "use set", i.e. the capture set marked as free at this node. */
       def markedFree: CaptureSet
 
+    extension (sym: Symbol)
+      def captureVars: CaptureSet
+
   end CheckerAPI
 
 class CheckCaptures extends Recheck, SymTransformer:
@@ -286,6 +289,9 @@ class CheckCaptures extends Recheck, SymTransformer:
       def needsSepCheck: Boolean = sepCheckFormals.contains(tree)
       def formalType: Type = sepCheckFormals.getOrElse(tree, NoType)
       def markedFree = usedSet.getOrElse(tree, CaptureSet.empty)
+
+    extension (sym: Symbol)
+      def captureVars = myCapturedVars.getOrElse(sym, CaptureSet.empty)
 
     /** Instantiate capture set variables appearing contra-variantly to their
      *  upper approximation.

@@ -43,9 +43,10 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
     import checker.*
     override def transform(tree: Tree)(using Context): Tree = tree match
       case tree @ DefDef(name, paramss, tpt, rhs) =>
+        // todo handle parameterless functions (ExprType)
         val sym = tree.symbol
         // after postTyper all tpts should be TypeTrees, so should be ok
-        // I also want this to fail at run-time if its not the case
+        // I also want this to fail if its not the case
         val forcedRes = tpt.asInstanceOf[TypeTree]
         if forcedRes.isInferred && !sym.isConstructor then
           val droppedRes = forcedRes.tpe.dropAllKill
@@ -81,16 +82,29 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
         cpy.TypeApply(tree)(transform(fn), droppedArgs)
       case tree @ ValDef(name, tpt, rhs) =>
         val sym = tree.symbol
-        if sym.exists && !sym.is(Param) then
-          assert(sym.info == tree.tpt.tpe)
-          val newInfo = tree.tpt.tpe.dropTopLevelKill
-          updateInfo(sym, newInfo)
+        if sym.exists && !sym.is(Param) && !sym.is(Module) then
+          val forcedRes = tpt.asInstanceOf[TypeTree]
+          if forcedRes.isInferred then
+            assert(sym.info == forcedRes.tpe)
+            val newInfo = forcedRes.tpe.dropAllKill
 
-          cpy.ValDef(tree)(
-            name,
-            tpt.withType(newInfo),
-            transform(tree.rhs)
-          )
+            val newTree = cpy.ValDef(tree)(
+              name,
+              tpt.withType(newInfo),
+              transform(tree.rhs)
+            )
+
+            val updatedInfo = new LazyType:
+              def complete(denot: SymDenotation)(using Context): Unit =
+                assert(ctx.phase == thisPhase.next, i"$sym")
+                denot.info = newInfo
+                val newResType = recheckDef(newTree, sym)
+                denot.info = newResType
+
+            updateInfo(sym, updatedInfo)
+            newTree
+          else
+            super.transform(tree)
         else
           super.transform(tree)
       case _ =>
