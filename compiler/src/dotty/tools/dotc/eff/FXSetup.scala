@@ -25,13 +25,10 @@ end FXSetup
 
 class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   thisPhase =>
-
   override def phaseName: String = FXSetup.name
   override def description: String = FXSetup.description
-
   override def isRunnable(using Context): Boolean = super.isRunnable
   override def changesBaseTypes: Boolean = true
-
   override def transformSym(symd: SymDenotation)(using Context): SymDenotation = symd
 
   private def updateInfo(sym: Symbol, info: Type)(using Context) =

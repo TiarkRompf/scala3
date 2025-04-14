@@ -279,7 +279,7 @@ class CheckCaptures extends Recheck, SymTransformer:
   var checker: CaptureChecker | Null = null
 
   def newRechecker()(using Context) =
-    checker = CaptureChecker(ctx)
+    checker = new CaptureChecker(ctx)
     checker.nn
 
   // comment this out for original capture checker

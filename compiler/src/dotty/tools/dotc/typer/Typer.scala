@@ -3351,15 +3351,15 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         // println(s"${tree.annot} <- tree.annot")
         // println(s"${annotCls} <- annotClass")
         val tpdAnnotated = assignType(cpy.Annotated(tree)(arg1, annot1), arg1, annot1)
-        tpdAnnotated.tpe match
-          case AnnotatedType(_, annot) =>
-            annot match
-              case ConcreteAnnotation(Apply(_, args)) if args.length > 0 =>
-                val arg = args.head
-                // println(killedElems(annot.tree).head.tpe.widen)
-                // println(arg)
-              case _ => ()
-          case _ => ()
+        // tpdAnnotated.tpe match
+        //   case AnnotatedType(_, annot) =>
+        //     annot match
+        //       case ConcreteAnnotation(Apply(_, args)) if args.length > 0 =>
+        //         val arg = args.head
+        //         // println(killedElems(annot.tree).head.tpe.widen)
+        //         // println(arg)
+        //       case _ => ()
+        //   case _ => ()
         tpdAnnotated
       else
         assert(ctx.reporter.errorsReported)
