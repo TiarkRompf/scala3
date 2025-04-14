@@ -8,14 +8,15 @@ import Contexts.*, Names.*, Flags.*, Symbols.*, Decorators.*
 import Types.*, StdNames.*, Denotations.*
 import ast.tpd, tpd.*
 import transform.{PreRecheck, Recheck}
-import annotation.{tailrec, threadUnsafe}
+import annotation.tailrec
 import cc.*
 import CaptureSet.*
 import Recheck.*
 import NamerOps.{linkConstructorParams, methodType}
 import util.SimpleIdentitySet
 import Annotations.*
-import dotty.tools.dotc.typer.ErrorReporting.Addenda
+import typer.ErrorReporting.Addenda
+import config.Feature
 
 object CheckEffects:
   val name: String = "eff"
@@ -104,9 +105,12 @@ object CheckEffects:
    * Checks that the variables inside a kill annotation are well-formed
    * Well-formedness conditions:
    * 1. Must be non-empty
-   * 2. Must be a capability - capturing type/retaining type/extends Capability
-   * 3. Kill annotation can only appear at function return type - idk how to check this
-   * 4. No duplicates allowed e.g. no kill(f, f).
+   * 2. No duplicates allowed e.g. no kill(f, f).
+   * 3. Must be a capture trackable ref
+   * 4. Must not be a special capability
+   * 5. Kill annotation can only appear in (this one should be checked in setup phase)
+   *  a) At top-level of explicit DefDef tpt
+   *  b) As result type of a MethodType
    */
   def checkWellformed(annot: Tree)(using Context): Unit =
     val killedElems = annot.killedElems
@@ -118,13 +122,13 @@ object CheckEffects:
         val refSym = ref.symbol
         if !killSet.add(refSym) then
           report.error(i"Kill set of $annot has a duplicate ref $ref", annot.srcPos)
-        ref.tpe.widen match
-          case RetainingType(_) => ()
-          case CapturingType(_) => () // I don't think these should ever exist during typer phase
+        ref.tpe match
+          case ref: CaptureRef if ref.isTrackableRef =>
+            if ref.isRootCapability then // hopefully only case that needs handling.
+              report.error(i"Killed variable cannot be a root capability!", annot.srcPos)
           case _ =>
-            // println(ref.symbol.denot.info)
-            // TODO figure out how to check if class extends capability or a
-            // TODO find more capabilities identifying info for extends capability
+            report.error(i"Killed variable ${ref} is not a capability!", annot.srcPos)
+  end checkWellformed
 
   object EffectType:
     def apply(tp: Type, refs: List[Tree])(using Context): Type =
@@ -175,10 +179,10 @@ class CheckEffects extends Recheck:
 
   override def description: String = CheckEffects.description
 
-  override def isRunnable(using Context) = super.isRunnable
+  // randomly Feature.ccEnabledSomewhere required for this even though previously it wasn't necessary?
+  override def isRunnable(using Context) = super.isRunnable && Feature.ccEnabledSomewhere
 
   def newRechecker()(using Context): Rechecker =
-    var unit = ctx.compilationUnit
     val ccPhase = checkCapturesPhase.asInstanceOf[CheckCaptures]
     val cc = ccPhase.checker match
       case null =>
@@ -205,6 +209,9 @@ class CheckEffects extends Recheck:
       def hasCCType: Boolean = cc.hasNuType(tree)
       def ccType(using Context): Type = cc.nuType(tree)
 
+    private def captures(tree: Tree)(using Context): Refs =
+      atPhase(checkCapturesPhase)(tree.ccType.deepCaptureSet.elems)
+
     extension (refs: Refs)
       private def footprint(using Context): Refs =
         def recur(elems: Refs, newElems: List[CaptureRef]): Refs = newElems match
@@ -217,6 +224,12 @@ class CheckEffects extends Recheck:
         recur(elems, elems.toList)
 
     override def recheckIdent(tree: Ident, pt: Type)(using Context): Type =
+      tree.tpe match
+        case ref: CaptureRef if ref.isTrackableRef && !ref.isRootCapability =>
+          if killed.contains(ref) then
+            report.error(i"Use of killed variable ${tree} is forbidden.", tree.srcPos)
+        case _ =>
+
       val used = tree.markedFree
       if !used.elems.isEmpty then
         val usedFootprint = used.elems.footprint
@@ -239,6 +252,7 @@ class CheckEffects extends Recheck:
             recheck(tree.rhs, WildcardType) // we infer!
           case _ =>
             recheck(tree.rhs, resType)
+    end recheckValDef
 
     override def recheckDefDef(tree: DefDef, sym: Symbol)(using Context): Type =
       sym.info match
@@ -277,35 +291,53 @@ class CheckEffects extends Recheck:
       else resType
     end inferDefDef
 
+    /**
+     * Checks that explicitly given type accounts for all killed parameters,
+     * and that the anything capturing a killed parameter is not returned
+     */
     def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
       val formalDead = resType match
         case EffectType(_, refs) =>
           refs.flatMap(_.toCaptureRefs)
         case _ => Nil
 
-      for param <- params do
-        if killed.contains(param) then
-          if formalDead.isEmpty then
-            report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
-            tree.srcPos)
-          else if !formalDead.contains(param) then
-            report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
-            tree.srcPos)
+      if !formalDead.isEmpty then
+        for param <- params do
+          if killed.contains(param) then
+            if formalDead.isEmpty then
+              report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
+              tree.srcPos)
+            else if !formalDead.contains(param) then
+              report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
+              tree.srcPos)
 
-      // TODO use intersection to check dead result
+        val rhsCaptures = captures(tree.rhs).footprint
+        for ref <- rhsCaptures do
+          if formalDead.contains(ref) then
+            report.error(i"Killed parameter ${ref} cannot be captured in method result expression.", tree.srcPos)
+      end if
       resType
     end checkExplicitDefDef
 
+    /**
+     * If a function kills a value it does not do anything.
+     * Open question: If function kills cap what does it do?
+     */
     override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
       val appType = super.recheckApply(tree, pt)
 
       appType match
         case EffectType(_, refs) =>
-          val deadRefs = SimpleIdentitySet(refs.flatMap(_.toCaptureRefs)*).footprint
+          val validRefs = refs.filter: ref =>
+            ref.tpe match
+              case tp: CaptureRef if tp.isTrackableRef && !tp.isRootCapability => true
+              case _ => false
+          val deadRefs = SimpleIdentitySet(validRefs.flatMap(_.toCaptureRefs)*).footprint
           for ref <- deadRefs do
             killed += ref.stripReach.stripMaybe.stripReadOnly
         case _ =>
       appType.dropTopLevelKill
+    end recheckApply
 
     override def recheckClosureBlock(mdef: DefDef, expr: Closure, pt: Type)(using Context): Type =
         val sym = mdef.symbol
@@ -323,6 +355,7 @@ class CheckEffects extends Recheck:
 
         expr.setNuType(newTpe)
         newTpe
+    end recheckClosureBlock
 
     override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
       try super.recheckDef(tree, sym)
