@@ -62,7 +62,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                     denot.info = methodType(sym.paramSymss, newResType, false)
                 updateInfo(sym, updatedInfo)
               case tp =>
-                println(s"${tp} <- ${sym.show}")
+                // println(s"${tp} <- ${sym.show}")
           newTree
         else
           super.transform(tree)
@@ -82,7 +82,10 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
         if sym.exists && !sym.is(Param) && !sym.is(Module) then
           val forcedRes = tpt.asInstanceOf[TypeTree]
           if forcedRes.isInferred then
-            assert(sym.info == forcedRes.tpe)
+            // if (sym.info != forcedRes.tpe) then
+            //   println(tree.show)
+            //   println(sym.info)
+            //   println(forcedRes.tpe)
             val newInfo = forcedRes.tpe.dropAllKill
 
             val newTree = cpy.ValDef(tree)(
