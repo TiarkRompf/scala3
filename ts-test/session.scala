@@ -2,9 +2,14 @@
 package typestate
 
 import language.experimental.captureChecking
+import caps.*, unsafe.*
 import scala.annotation, annotation.tailrec
 
 class kill(xs: Any*) extends annotation.StaticAnnotation
+
+object CCHack:
+  def assumeFresh[E, P <: Protocol](x: Chan[E, P]): Chan[E, P]^ =
+    x.asInstanceOf[Chan[E, P]^]
 
 trait Nat
 class Z extends Nat
@@ -29,48 +34,101 @@ type Dual[P <: Protocol] <: Protocol = P match
   case Close => Close
 
 class Chan[E, S <: Protocol] // maybe also constrain E?
-// instead of having type parameter protocol, make it have abstract type member with protocol
 
 object Chan:
   def apply[P <: Protocol](): (Chan[Unit, P], Chan[Unit, Dual[P]]) =
     (new Chan[Unit, P],
      new Chan[Unit, Dual[P]])
 
-  extension [E, P <: Protocol](chan: Chan[E, Rec[P]]) // basically we want to kill for all these extension methods
-   def enter(): Chan[(P, E), P] =
+  extension [E, P <: Protocol](chan: Chan[E, Rec[P]]^)
+   def rec_push(): (Chan[(P, E), P]^) @kill(chan) =
       chan.asInstanceOf[Chan[(P, E), P]]
 
-  extension [E, P <: Protocol](chan: Chan[(P, E), Var[Z]])
-    def zero(): Chan[(P, E), P] =
+  extension [E, P <: Protocol](chan: Chan[(P, E), Var[Z]]^)
+    def rec_top(): (Chan[(P, E), P]^) @kill(chan) =
       chan.asInstanceOf[Chan[(P, E), P]]
 
   extension [E, P <: Protocol, N <: Nat](chan: Chan[(P, E), Var[S[N]]])
-    def succ(): Chan[E, Var[N]] =
+    def rec_pop(): Chan[E, Var[N]] =
       chan.asInstanceOf[Chan[E, Var[N]]]
 
-  extension [E, T, P <: Protocol](chan: Chan[E, Send[T, P]])
-    def send(x: T): Chan[E, P] =
+  extension [E, T, P <: Protocol](chan: Chan[E, Send[T, P]]^)
+    def send(x: T): (Chan[E, P]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, P]]
 
-  extension [E, T, P <: Protocol](chan: Chan[E, Recv[T, P]])
-    def recv(): (Chan[E, P], T) =
+  extension [E, T, P <: Protocol](chan: Chan[E, Recv[T, P]]^)
+    def recv(): (Chan[E, P], T) @kill(chan) =
       chan.asInstanceOf[(Chan[E, P], T)]
 
-  extension [E, L <: Protocol, R <: Protocol](chan: Chan[E, Choose[L, R]])
-    def left(): Chan[E, L] =
+  extension [E, L <: Protocol, R <: Protocol](chan: (Chan[E, Choose[L, R]]^))
+    def left(): (Chan[E, L]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, L]]
 
-  extension [E, L <: Protocol, R <: Protocol](chan: Chan[E, Choose[L, R]])
-    def right(): Chan[E, R] =
+  extension [E, L <: Protocol, R <: Protocol](chan: (Chan[E, Choose[L, R]]^))
+    def right(): (Chan[E, R]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, R]]
 
-  extension [E, L <: Protocol, R <: Protocol](chan: Chan[E, Offer[L, R]])
-    def offer(): Either[Chan[E, L], Chan[E, R]] =
+  extension [E, L <: Protocol, R <: Protocol](chan: Chan[E, Offer[L, R]]^)
+    def offer(): Either[Chan[E, L]^, Chan[E, R]^] @kill(chan) =
       Left(chan.asInstanceOf[Chan[E, L]])
 
-  extension [E](chan: Chan[E, Close])
-    def close(): Unit = ()
+  extension [E](chan: Chan[E, Close]^)
+    def close(): Unit @kill(chan) = ()
 
+type EchoSInner = Recv[String, Offer[Var[Z], Close]]
+type EchoServer = Rec[EchoSInner]
+type EchoCInner = Dual[EchoSInner]
+type EchoClient = Dual[EchoServer]
+
+object EchoServer:
+  import CCHack.*
+
+  def apply(c: Chan[Unit, EchoServer]^) =
+    val c2 = c.rec_push()
+
+    @tailrec def recur(c: Chan[(EchoSInner, Unit), EchoSInner]^): Unit @kill(c) =
+      val recvTup = c.recv()
+      val c2 = assumeFresh(recvTup._1)
+      val str = recvTup._2
+
+      println(str)
+      c2.offer() match
+        case Left(c) =>
+          recur(c.rec_top())
+        case Right(c) =>
+          c.close()
+    end recur
+    recur(c2)
+
+  end apply
+
+object EchoClient:
+  def readLine(): String = "something"
+
+  def apply(c: Chan[Unit, EchoClient]^) =
+    val c2 = c.rec_push()
+
+    @tailrec def recur(c: Chan[(EchoCInner, Unit), EchoCInner]^): Unit @kill(c) =
+      val input = readLine()
+      val c2 = c.send(input)
+      if (input == "exit") then
+        c2.right().close()
+      else
+        recur(c2.left().rec_top())
+    end recur
+    recur(c2)
+  end apply
+
+object Main:
+  import CCHack.*
+  def echo_test() =
+    val channels = Chan[EchoServer]()
+    val server_chan = assumeFresh(channels._1)
+    val client_chan = assumeFresh(channels._2)
+    EchoServer(server_chan)
+    EchoClient(client_chan)
+
+/*
 type AtmDeposit = Recv[Int, Send[Int, Var[Z]]]
 type AtmWithdraw = Recv[Int, Choose[Var[Z], Var[Z]]]
 type AtmInner = Offer[AtmDeposit, Offer[AtmWithdraw, Close]]
@@ -86,61 +144,62 @@ object Atm:
       c1.right().close()
       return
     else
-      var c = c1.left().enter()
-      var isOpen = true
-      while (isOpen) do // not nice
+      val c2 = c1.left().rec_push()
+      @tailrec def recur(c: Chan[(AtmInner, Unit), AtmInner]): Unit =
         c.offer() match
-          case Left(c1) =>
-            val (c2, amt) = c1.recv()
-            c = c2.send(updateBal(amt)).zero()
-          case Right(c1) =>
-            c1.offer() match
-              case Left(c1) =>
-                val (c2, amt) = c1.recv()
-                if (amt <= 10) then
-                  c = c2.left().zero()
+          case Left(c) =>
+            val (c2, amt) = c.recv()
+            recur(c2.send(updateBal(amt)).rec_top())
+          case Right(c) =>
+            c.offer() match
+              case Left(c) =>
+                val (c2, amt) = c.recv()
+                if 10 >= amt then
+                  recur(c2.left().rec_top())
                 else
-                  c = c2.right().zero()
-              case Right(c1) =>
-                c1.close()
-                isOpen = false
-      // @tailrec def recur[E, P <: Protocol](c: Chan[(P, E), Offer[AtmDeposit, Offer[AtmWithdraw, Close]]]): Unit =
+                  recur(c2.right().rec_top())
+              case Right(c) =>
+                c.close()
+      end recur
+      recur(c2)
+      // var isOpen = true
+      // while (isOpen) do // not nice
       //   c.offer() match
-      //     case Left(c) =>
-      //       val (c2, amt) = c.recv()
-      //       recur(c2.send(updateBal(amt)).zero())
-      //     case Right(c) =>
-      //       c.offer() match
-      //         case Left(c) =>
-      //           val (c2, amt) = c.recv()
-      //           if 10 >= amt then
-      //             recur(c2.left().zero())
+      //     case Left(c1) =>
+      //       val (c2, amt) = c1.recv()
+      //       c = c2.send(updateBal(amt)).rec_top()
+      //     case Right(c1) =>
+      //       c1.offer() match
+      //         case Left(c1) =>
+      //           val (c2, amt) = c1.recv()
+      //           if (amt <= 10) then
+      //             c = c2.left().rec_top()
       //           else
-      //             recur(c2.right().zero())
-      //         case Right(c) =>
-      //           c.close()
-      // end recur
-      // recur(c2)
+      //             c = c2.right().rec_top()
+      //         case Right(c1) =>
+      //           c1.close()
+      //           isOpen = false
 
-type Client = Dual[Atm]
-type ClientInner = Dual[AtmInner]
+type AtmClient = Dual[Atm]
+type AtmClientInner = Dual[AtmInner]
 
-object Client:
+object AtmClient:
   val id: String = "A"
-  def clientDeposit(c: Chan[Unit, Client]): Unit =
+  def clientDeposit(c: Chan[Unit, AtmClient]): Unit =
     val c2 = c.send(id).offer() match
-      case Left(c) => c.enter()
+      case Left(c) => c.rec_push()
       case Right(c) =>
         c.close()
         return
 
     val (c3, new_bal) = c2.left().send(100).recv()
     println(s"New Balance: ${new_bal}")
-    c3.zero().right().right().close()
+    c3.rec_top().right().right().close()
+*/
 
-object Main:
-  import Client.clientDeposit
-  def main() =
-    val (atm_chan, client_chan) = Chan[Atm]() // create new channels
-    Atm(atm_chan) // start atm server
-    clientDeposit(client_chan) // start a client
+// object Main:
+//   // import AtmClient.clientDeposit
+//   // def atm_test() =
+//   //   val (atm_chan, client_chan) = Chan[Atm]() // create new channels
+//   //   Atm(atm_chan) // start atm server
+//   //   clientDeposit(client_chan) // start a client
