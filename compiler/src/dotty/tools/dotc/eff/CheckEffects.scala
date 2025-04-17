@@ -194,7 +194,27 @@ class CheckEffects extends Recheck:
     import CheckEffects.*
     import cc.*
 
-    private val killed = util.HashSet[CaptureRef]()
+    private var killed = util.HashSet[CaptureRef]()
+
+    /*
+     * 1. saved all killed prior to op
+     * 2. do op
+     * 3. reset killed to savedkilled
+     * 4. return new killed
+     *
+     * This is really inefficient - find a better solution.
+     * Probably the best way is to use something similar to ConsumedSet?
+     */
+    def segment(op: => Type): (Type, util.HashSet[CaptureRef]) =
+      val savedKilled = util.HashSet[CaptureRef]()
+      savedKilled ++= killed.iterator
+      val res = op
+
+      val newKilled = util.HashSet[CaptureRef]()
+      newKilled ++= killed.iterator
+      killed = savedKilled
+      (res, newKilled)
+
 
     private val keepNuTypes = false
 
@@ -258,7 +278,7 @@ class CheckEffects extends Recheck:
       sym.info match
         case FunctionOrMethod(_, _) =>
         case _ =>
-          println(s"${sym.info} <- ${sym}, is not a method type!")
+          // println(s"${sym.info} <- ${sym}, is not a method type!")
 
       val resTree = tree.tpt
       val paramRefs = tree.termParamss.flatten.flatMap(_.toCaptureRefs)
@@ -301,27 +321,26 @@ class CheckEffects extends Recheck:
           refs.flatMap(_.toCaptureRefs)
         case _ => Nil
 
-      if !formalDead.isEmpty then
-        for param <- params do
-          if killed.contains(param) then
-            if formalDead.isEmpty then
-              report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
-              tree.srcPos)
-            else if !formalDead.contains(param) then
-              report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
-              tree.srcPos)
+      for param <- params do
+        if killed.contains(param) then
+          if formalDead.isEmpty then
+            report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
+            tree.srcPos)
+          else if !formalDead.contains(param) then
+            report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
+            tree.srcPos)
 
-        val rhsCaptures = captures(tree.rhs).footprint
-        for ref <- rhsCaptures do
-          if formalDead.contains(ref) then
-            report.error(i"Killed parameter ${ref} cannot be captured in method result expression.", tree.srcPos)
-      end if
+      val rhsCaptures = captures(tree.rhs).footprint
+      for ref <- rhsCaptures do
+        if formalDead.contains(ref) then
+          report.error(i"Killed parameter ${ref} cannot be captured in method result expression.", tree.srcPos)
       resType
     end checkExplicitDefDef
 
     /**
      * If a function kills a value it does not do anything.
      * Open question: If function kills cap what does it do?
+     *
      */
     override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
       val appType = super.recheckApply(tree, pt)
@@ -334,6 +353,13 @@ class CheckEffects extends Recheck:
               case _ => false
           val deadRefs = SimpleIdentitySet(validRefs.flatMap(_.toCaptureRefs)*).footprint
           for ref <- deadRefs do
+            val currentOwner = ctx.owner // in future do role.dclSym like SepCheck
+            ref.pathRootOrShared match
+              case ref: TermRef =>
+                val refOwner = ref.symbol.maybeOwner.enclosingMethodOrClass
+                if (currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refOwner)) then
+                  report.error(i"Killing a non-local variable ${ref} is prohibited!", tree.srcPos)
+              case _ =>
             killed += ref.stripReach.stripMaybe.stripReadOnly
         case _ =>
       appType.dropTopLevelKill
@@ -350,12 +376,36 @@ class CheckEffects extends Recheck:
           else
             recheckClosure(expr, pt, forceDependent = false)
         case tp =>
-          println(s"${tp} <- ${mdef.name.show}")
+          // println(s"${tp} <- ${mdef.name.show}")
           recheckClosure(expr, pt, forceDependent = false)
 
         expr.setNuType(newTpe)
         newTpe
     end recheckClosureBlock
+
+    override def recheckIf(tree: If, pt: Type)(using Context): Type =
+      recheck(tree.cond, defn.BooleanType)
+      val savedKilled = util.HashSet[CaptureRef]()
+      killed.foreach(savedKilled += _)
+
+      val tBranch = recheck(tree.thenp, pt)
+      val tKilled = util.HashSet[CaptureRef]()
+      killed.foreach(tKilled += _)
+      killed = savedKilled
+
+      val eBranch = recheck(tree.elsep, pt)
+      tKilled.foreach(killed += _)
+      tBranch | eBranch
+
+    override def recheckMatch(tree: Match, pt: Type)(using Context): Type =
+      val selectorType = recheck(tree.selector, pt)
+      val typesAndKill =
+        for cas <- tree.cases yield
+          segment(recheckCase(cas, selectorType.widen, pt))
+
+      typesAndKill.foreach(killed ++= _._2.iterator)
+      val casesType = typesAndKill.map(_._1)
+      TypeComparer.lub(casesType)
 
     override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
       try super.recheckDef(tree, sym)
