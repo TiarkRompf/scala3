@@ -1,4 +1,5 @@
 // Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
+// First iteration that uses the channel itself as a capability.
 package typestate
 
 import language.experimental.captureChecking
@@ -111,6 +112,7 @@ object EchoClient:
     @tailrec def recur(c: Chan[(EchoCInner, Unit), EchoCInner]^): Unit @kill(c) =
       val input = readLine()
       val c2 = c.send(input)
+      // c.send(input)
       if (input == "exit") then
         c2.right().close()
       else
@@ -162,23 +164,23 @@ object Atm:
                 c.close()
       end recur
       recur(c2)
-      // var isOpen = true
-      // while (isOpen) do // not nice
-      //   c.offer() match
-      //     case Left(c1) =>
-      //       val (c2, amt) = c1.recv()
-      //       c = c2.send(updateBal(amt)).rec_top()
-      //     case Right(c1) =>
-      //       c1.offer() match
-      //         case Left(c1) =>
-      //           val (c2, amt) = c1.recv()
-      //           if (amt <= 10) then
-      //             c = c2.left().rec_top()
-      //           else
-      //             c = c2.right().rec_top()
-      //         case Right(c1) =>
-      //           c1.close()
-      //           isOpen = false
+      var isOpen = true
+      while (isOpen) do // not nice
+        c.offer() match
+          case Left(c1) =>
+            val (c2, amt) = c1.recv()
+            c = c2.send(updateBal(amt)).rec_top()
+          case Right(c1) =>
+            c1.offer() match
+              case Left(c1) =>
+                val (c2, amt) = c1.recv()
+                if (amt <= 10) then
+                  c = c2.left().rec_top()
+                else
+                  c = c2.right().rec_top()
+              case Right(c1) =>
+                c1.close()
+                isOpen = false
 
 type AtmClient = Dual[Atm]
 type AtmClientInner = Dual[AtmInner]

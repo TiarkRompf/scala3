@@ -13,7 +13,7 @@ import StdNames.nme
 import util.{SimpleIdentitySet, EqHashMap, SrcPos}
 import tpd.*
 import reflect.ClassTag
-import eff.CheckEffects.*
+import eff.*, CheckEffects.*, KillOps.*
 
 /** The separation checker is  a tree traverser that is run after capture checking.
  *  It checks tree nodes for various separation conditions, explained in the
@@ -796,7 +796,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
    */
   private def checkKillApp(app: Apply, args: List[Tree])(using Context): Unit =
     app.tpe match
-      case EffectType(_, refs) =>
+      case KillType(_, refs) =>
         val killSet = refs.map(_.symbol).toSet
         val killedArgs = args.filter(arg => killSet.contains(arg.symbol))
         for arg <- killedArgs do
@@ -821,7 +821,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
 
   private def checkDeadRes(tree: DefDef)(using Context): Unit =
     tree.tpt.tpe match
-      case EffectType(_, refs) =>
+      case KillType(_, refs) =>
         val killSet = util.HashSet[Symbol]()
         refs.foreach(killSet += _.symbol)
         val rhsCaptures = captures(tree.rhs).footprint

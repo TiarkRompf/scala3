@@ -22,15 +22,23 @@ object CheckEffects:
   val name: String = "eff"
   val description: String = "effect checking"
 
-  extension (tree: Tree)
-    /**
-     * Given a annotation, finds its killedElems from its tree (annot.tree).
-     */
-    def killedElems(using Context): List[Tree] = tree match
-      case Apply(_, Typed(SeqLiteral(elems, _), _) :: Nil) =>
-        elems
-      case _ =>
-        Nil
+  trait FXCheckerAPI:
+    def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type
+  end FXCheckerAPI
+
+  private var CheckEffectsPhase: Phase | Null = null // need to find better than this hack
+
+  def isEffCheckingOrSetup(using Context): Boolean =
+    val effId = CheckEffectsPhase match
+      case null =>
+        CheckEffectsPhase = ctx.base.allPhases.find(_.phaseName == "eff").getOrElse(NoPhase)
+        CheckEffectsPhase.nn.id
+      case phase =>
+        phase.id
+    val ctxId = ctx.phaseId
+    ctxId == effId || ctxId == effId - 1
+
+  def onlyEffCheckKill(using Context): Boolean = true // make this dependent on some compiler flag or smth?
 
   private var killAnnot: ClassSymbol | Null = null // very hacky solution for now
 
@@ -49,118 +57,22 @@ object CheckEffects:
           sym == killAnnot.nn
         case annot => sym == annot
 
-  extension (tp: Type)
-    def dropAllKill(using Context): Type =
-      val tm = new TypeMap:
-        def apply(t: Type) = t match
-          case EffectType(parent, _) =>
-            apply(parent)
-          case _ =>
-            mapOver(t)
-      tm(tp)
+  private var effAnnot: ClassSymbol | Null = null
 
-    /**
-     * Drops all non-kill annotations
-     */
-    def dropAllNotKill(using Context): Type =
-      val tm = new TypeMap:
-        def apply(t: Type) = t match
-          case AnnotatedType(parent, annot) if !annot.symbol.isKill =>
-            apply(parent)
-          case _ =>
-            mapOver(t)
-      tm(tp)
-
-    def dropTopLevelKill(using Context): Type = // maybe recursively drop?
-      tp match
-        case EffectType(parent, killSet) => parent
-        case _ => tp
-
-    def getKilled(using Context): List[Tree] =
-      tp match
-        case EffectType(_, killSet) => killSet
-        case _ => Nil
-
-    def getKillAnnot(using Context): Option[Annotation] =
-      tp match
-        case AnnotatedType(parent, annot) if annot.symbol.isKill => Some(annot)
-        case _ => None
-
-    def isKillFun(using Context): Boolean =
-      tp match
-        case fntpe @ FunctionOrMethod(_, EffectType(_, _)) => true
-        case _ => false
-
-    def isEffType(using Context): Boolean =
-      tp match
-        case EffectType(_) => true
-        case _ => false
-
-  extension (ref: CaptureRef)
-    def killTree(using Context): Tree =
-      import ast.untpd
-      untpd.Ident(ref.termSymbol.name).withType(ref)
-
-  /**
-   * Checks that the variables inside a kill annotation are well-formed
-   * Well-formedness conditions:
-   * 1. Must be non-empty
-   * 2. No duplicates allowed e.g. no kill(f, f).
-   * 3. Must be a capture trackable ref
-   * 4. Must not be a special capability
-   * 5. Kill annotation can only appear in (this one should be checked in setup phase)
-   *  a) At top-level of explicit DefDef tpt
-   *  b) As result type of a MethodType
-   */
-  def checkWellformed(annot: Tree)(using Context): Unit =
-    val killedElems = annot.killedElems
-    if killedElems.isEmpty then
-      report.error(i"Kill set of $annot may be empty.", annot.srcPos)
-    else
-      val killSet = util.HashSet[Symbol]()
-      for ref <- killedElems do
-        val refSym = ref.symbol
-        if !killSet.add(refSym) then
-          report.error(i"Kill set of $annot has a duplicate ref $ref", annot.srcPos)
-        ref.tpe match
-          case ref: CaptureRef if ref.isTrackableRef =>
-            if ref.isRootCapability then // hopefully only case that needs handling.
-              report.error(i"Killed variable cannot be a root capability!", annot.srcPos)
-          case _ =>
-            report.error(i"Killed variable ${ref} is not a capability!", annot.srcPos)
-  end checkWellformed
-
-  object EffectType:
-    def apply(tp: Type, refs: List[Tree])(using Context): Type =
-      val annotTree =
-        New(getKillAnnot.typeRef,
-          Typed(
-            SeqLiteral(refs, TypeTree(defn.AnyType)),
-            TypeTree(defn.RepeatedParamClass.typeRef.appliedTo(defn.AnyType))) :: Nil)
-      AnnotatedType(tp, Annotation(annotTree))
-
-    def unapply(tp: Type)(using Context): Option[(Type, List[Tree])] =
-      tp match
-        case AnnotatedType(parent, annot) if annot.symbol.isKill =>
-          Some(parent, annot.tree.killedElems)
-        case _ => None
-
-  trait FXCheckerAPI:
-    def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type
-  end FXCheckerAPI
-
-  private var CheckEffectsPhase: Phase | Null = null // need to find better than this hack
-
-  def isEffCheckingOrSetup(using Context): Boolean =
-    val effId = CheckEffectsPhase match
+  def getEffAnnot(using Context): ClassSymbol =
+    effAnnot match
       case null =>
-        CheckEffectsPhase = ctx.base.allPhases.find(_.phaseName == "eff").getOrElse(NoPhase)
-        CheckEffectsPhase.nn.id
-      case phase =>
-        phase.id
-    val ctxId = ctx.phaseId
-    ctxId == effId || ctxId == effId - 1
+        effAnnot = requiredClass("typestate.eff")
+        effAnnot.nn
+      case annot => annot
 
+  extension (sym: Symbol)
+    def isEff(using Context): Boolean =
+      effAnnot match
+        case null =>
+          effAnnot = requiredClass("typestate.eff")
+          sym == effAnnot.nn
+        case annot => sym == annot
 end CheckEffects
 
 /**
@@ -188,11 +100,19 @@ class CheckEffects extends Recheck:
       case null =>
         assert(false, s"Internal Error: Capture Checker not assigned at CC Phase.")
       case checker => checker
-    EffectChecker(ctx, cc)
+    if onlyEffCheckKill then
+      KillChecker(ctx, cc)
+    else
+      EffectChecker(ctx, cc)
 
-  class EffectChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
+
+  class KillChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
     import CheckEffects.*
     import cc.*
+    import KillOps.*
+
+    // apparently this has to be in this class?
+    private val setup: FXSetupAPI = thisPhase.prev.asInstanceOf[FXSetup]
 
     private var killed = util.HashSet[CaptureRef]()
 
@@ -215,10 +135,7 @@ class CheckEffects extends Recheck:
       killed = savedKilled
       (res, newKilled)
 
-
     private val keepNuTypes = false
-
-    private val setup: FXSetupAPI = thisPhase.prev.asInstanceOf[FXSetup]
 
     private val completed = new collection.mutable.HashSet[Symbol]
 
@@ -299,7 +216,7 @@ class CheckEffects extends Recheck:
     /**
      * Plan - do inference on the tree.tpt and return new inferred, but then
      * in FXSetup when constructing the new MethodType integrate the params
-     * into the EffectType()
+     * into the KillType()
      */
     def inferDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
       val killedParams =
@@ -307,7 +224,7 @@ class CheckEffects extends Recheck:
         yield param.killTree
 
       if !killedParams.isEmpty then
-        EffectType(resType, killedParams)
+        KillType(resType, killedParams)
       else resType
     end inferDefDef
 
@@ -317,7 +234,7 @@ class CheckEffects extends Recheck:
      */
     def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
       val formalDead = resType match
-        case EffectType(_, refs) =>
+        case KillType(_, refs) =>
           refs.flatMap(_.toCaptureRefs)
         case _ => Nil
 
@@ -346,7 +263,7 @@ class CheckEffects extends Recheck:
       val appType = super.recheckApply(tree, pt)
 
       appType match
-        case EffectType(_, refs) =>
+        case KillType(_, refs) =>
           val validRefs = refs.filter: ref =>
             ref.tpe match
               case tp: CaptureRef if tp.isTrackableRef && !tp.isRootCapability => true
@@ -421,4 +338,35 @@ class CheckEffects extends Recheck:
       // denotPrinter().traverse(unit.tpdTree)
       super.checkUnit(unit)
       unit.tpdTree.removeAttachment(RecheckedTypes)
+
+  end KillChecker
+
+
+  class EffectChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
+    import CheckEffects.*
+    import EffOps.*
+    import cc.*
+
+    private val setup: FXSetupAPI = thisPhase.prev.asInstanceOf[FXSetup]
+
+    private var killed = util.HashSet[CaptureRef]()
+
+    private var used = util.HashSet[CaptureRef]()
+
+    // override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
+    //   val (funtpe0, qualType) = tree.fun match
+    //     case fun: Select =>
+    //       val qualType = recheck(fun.qualifier, selectionProto(fun, WildcardType)).widenIfUnstable
+    //       (recheckSelection(fun, qualType, fun.name, WildcardType), qualType)
+    //     case _ =>
+    //       (recheck(tree.fun), NoType)
+    //   val funtpe1 = if tree.fun.symbol.originalSignaturePolymorphic.exists then tree.fun.tpe else funtpe0
+    //   funtpe1.widen match
+
+    override def checkUnit(unit: CompilationUnit)(using Context): Unit =
+      unit.tpdTree = setup.setupUnit(unit.tpdTree, this)
+      super.checkUnit(unit)
+
+  end EffectChecker
+end CheckEffects
 

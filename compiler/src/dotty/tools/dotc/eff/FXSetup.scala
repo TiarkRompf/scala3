@@ -32,12 +32,11 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   override def transformSym(symd: SymDenotation)(using Context): SymDenotation = symd
 
   private def updateInfo(sym: Symbol, info: Type)(using Context) =
-    // toBeUpdated += sym
     sym.updateInfo(thisPhase, info, sym.flags)
-    // toBeUpdated -= sym
 
-  class SetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
+  class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
     import checker.*
+    import KillOps.*
     override def transform(tree: Tree)(using Context): Tree = tree match
       case tree @ DefDef(name, paramss, tpt, rhs) =>
         // todo handle parameterless functions (ExprType)
@@ -110,7 +109,16 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
       case _ =>
         super.transform(tree)
 
+  class FXSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
+    import checker.*
+    import EffOps.*
+    override def transform(tree: Tree)(using Context): Tree =
+      tree
+
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree =
-    atPhase(thisPhase)(SetupTransformer(checker).transform(tree))
+    if onlyEffCheckKill then
+      atPhase(thisPhase)(KillSetupTransformer(checker).transform(tree))
+    else
+      atPhase(thisPhase)(FXSetupTransformer(checker).transform(tree))
 
 end FXSetup
