@@ -3430,23 +3430,14 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       val cls = annot1.symbol.maybeOwner
       if Feature.ccEnabled && cls.isRetainsLike then
         CheckCaptures.checkWellformed(arg1, annot1)
-      import eff.CheckEffects, CheckEffects.isKill
-      if cls.isKill then
-        CheckEffects.checkWellformed(annot1)
+      import eff.{CheckEffects, KillOps}, CheckEffects.{isKill, isEff, onlyEffCheckKill}
+      if Feature.ccEnabled && cls.isKill && onlyEffCheckKill then
+        KillOps.checkWellformed(annot1)
+      if Feature.ccEnabled && cls.isEff && !onlyEffCheckKill then
+        import eff.EffOps
+        EffOps.checkWellformed(annot1)
       if arg1.isType then
-        // println(s"${tree.annot} <- tree.annot")
-        // println(s"${annotCls} <- annotClass")
-        val tpdAnnotated = assignType(cpy.Annotated(tree)(arg1, annot1), arg1, annot1)
-        // tpdAnnotated.tpe match
-        //   case AnnotatedType(_, annot) =>
-        //     annot match
-        //       case ConcreteAnnotation(Apply(_, args)) if args.length > 0 =>
-        //         val arg = args.head
-        //         // println(killedElems(annot.tree).head.tpe.widen)
-        //         // println(arg)
-        //       case _ => ()
-        //   case _ => ()
-        tpdAnnotated
+        assignType(cpy.Annotated(tree)(arg1, annot1), arg1, annot1)
       else
         assert(ctx.reporter.errorsReported)
         TypeTree(UnspecifiedErrorType)

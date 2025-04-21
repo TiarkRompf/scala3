@@ -26,7 +26,7 @@ import cc.*
 import Capabilities.Capability
 import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
-import eff.CheckEffects.*
+import eff.*, CheckEffects.*, KillOps.*
 
 /** Provides methods to compare types.
  */
@@ -702,7 +702,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
               * then check if substInfo1 \subset info2
               */
               case (info1: MethodType, info2: MethodType) =>
-                if info1.resultType.isEffType then
+                if info1.resultType.isKillType then
                   val substInfo1 = info1.resultType.subst(info1, info2)
                   val killSet1 = substInfo1.getKilled.map(_.tpe).toSet
                   val killSet2 = info2.resultType.getKilled.map(_.tpe).toSet
