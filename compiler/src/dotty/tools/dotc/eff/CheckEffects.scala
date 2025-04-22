@@ -73,6 +73,16 @@ object CheckEffects:
           effAnnot = requiredClass("typestate.eff")
           sym == effAnnot.nn
         case annot => sym == annot
+
+  extension (cref: CaptureRef)
+    def refTree(using Context): Tree =
+      import ast.untpd
+      cref match
+        case cr: TermRef => ref(cr)
+        case cr: TermParamRef => untpd.Ident(cr.paramName).withType(cr)
+        case cr =>
+          println(s"$cr <- is being turned into tree!")
+          untpd.Ident(cr.termSymbol.name).withType(cr)
 end CheckEffects
 
 /**
@@ -96,15 +106,30 @@ class CheckEffects extends Recheck:
 
   def newRechecker()(using Context): Rechecker =
     val ccPhase = checkCapturesPhase.asInstanceOf[CheckCaptures]
-    val cc = ccPhase.checker match
+    val captureChecker = ccPhase.checker match
       case null =>
         assert(false, s"Internal Error: Capture Checker not assigned at CC Phase.")
       case checker => checker
     if onlyEffCheckKill then
-      KillChecker(ctx, cc)
+      KillChecker(ctx, captureChecker)
     else
-      EffectChecker(ctx, cc)
+      EffectChecker(ctx, captureChecker)
+  end newRechecker
 
+  extension (refs: Refs)
+    private def footprint(using Context): Refs =
+      atPhase(checkCapturesPhase)(getFP)
+
+    private def getFP(using Context): Refs = // todo make atPhase(CCPhase)
+      def recur(elems: Refs, newElems: List[CaptureRef]): Refs = newElems match
+        case newElem :: newElems1 =>
+          val superElems = newElem.captureSetOfInfo.elems.filter: superElem =>
+            !superElem.isMaxCapability && !elems.contains(superElem)
+          recur(elems ++ superElems, newElems1 ++ superElems.toList)
+        case Nil => elems
+      val elems: Refs = refs.filter(!_.isMaxCapability)
+      recur(elems, elems.toList)
+    end getFP
 
   class KillChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
     import CheckEffects.*
@@ -148,17 +173,6 @@ class CheckEffects extends Recheck:
 
     private def captures(tree: Tree)(using Context): Refs =
       atPhase(checkCapturesPhase)(tree.ccType.deepCaptureSet.elems)
-
-    extension (refs: Refs)
-      private def footprint(using Context): Refs =
-        def recur(elems: Refs, newElems: List[CaptureRef]): Refs = newElems match
-          case newElem :: newElems1 =>
-            val superElems = newElem.captureSetOfInfo.elems.filter: superElem =>
-              !superElem.isMaxCapability && !elems.contains(superElem)
-            recur(elems ++ superElems, newElems1 ++ superElems.toList)
-          case Nil => elems
-        val elems: Refs = refs.filter(!_.isMaxCapability)
-        recur(elems, elems.toList)
 
     override def recheckIdent(tree: Ident, pt: Type)(using Context): Type =
       tree.tpe match
@@ -221,7 +235,7 @@ class CheckEffects extends Recheck:
     def inferDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
       val killedParams =
         for param <- params if killed.contains(param)
-        yield param.killTree
+        yield param.refTree
 
       if !killedParams.isEmpty then
         KillType(resType, killedParams)
@@ -230,7 +244,10 @@ class CheckEffects extends Recheck:
 
     /**
      * Checks that explicitly given type accounts for all killed parameters,
-     * and that the anything capturing a killed parameter is not returned
+     * and that the anything capturing a killed parameter is not returned.
+     *
+     * Hopefully it shouldn't be possible for a something capturing a parameter to be
+     * killed and the parameter is somehow not in the killed set.
      */
     def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
       val formalDead = resType match
@@ -244,7 +261,7 @@ class CheckEffects extends Recheck:
             report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
             tree.srcPos)
           else if !formalDead.contains(param) then
-            report.error(i"Kill set of ${sym} does not contain killed argument ${param}",
+            report.error(i"Kill set of ${sym} does not contain killed parameter ${param}",
             tree.srcPos)
 
       val rhsCaptures = captures(tree.rhs).footprint
@@ -328,11 +345,6 @@ class CheckEffects extends Recheck:
       try super.recheckDef(tree, sym)
       finally completed += sym
 
-    // TODO better error messaging for this?
-    override def checkConformsExpr(actual: Type, expected: Type, tree: tpd.Tree, addenda: Addenda)(using Context): Type =
-      val act = super.checkConformsExpr(actual, expected, tree, addenda)
-      act
-
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       unit.tpdTree = setup.setupUnit(unit.tpdTree, this)
       // denotPrinter().traverse(unit.tpdTree)
@@ -340,7 +352,6 @@ class CheckEffects extends Recheck:
       unit.tpdTree.removeAttachment(RecheckedTypes)
 
   end KillChecker
-
 
   class EffectChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
     import CheckEffects.*
@@ -351,17 +362,81 @@ class CheckEffects extends Recheck:
 
     private var killed = util.HashSet[CaptureRef]()
 
+    // this should be like ConsumedSet - every defdef gets a fresh one
+    // Is the only use of this is check what parameters a function uses
     private var used = util.HashSet[CaptureRef]()
 
-    // override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
-    //   val (funtpe0, qualType) = tree.fun match
-    //     case fun: Select =>
-    //       val qualType = recheck(fun.qualifier, selectionProto(fun, WildcardType)).widenIfUnstable
-    //       (recheckSelection(fun, qualType, fun.name, WildcardType), qualType)
-    //     case _ =>
-    //       (recheck(tree.fun), NoType)
-    //   val funtpe1 = if tree.fun.symbol.originalSignaturePolymorphic.exists then tree.fun.tpe else funtpe0
-    //   funtpe1.widen match
+    private val completed = new collection.mutable.HashSet[Symbol]
+
+    override def skipRecheck(sym: Symbol)(using Context): Boolean =
+      completed.contains(sym)
+
+    override def recheckDefDef(tree: DefDef, sym: Symbol)(using Context): Type =
+      val resTree = tree.tpt
+      val paramRefs = tree.termParamss.flatten.flatMap(_.toCaptureRefs)
+
+      inContext(linkConstructorParams(sym).withOwner(sym)):
+        val resType = recheck(resTree) // totally unnecessary
+        if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
+        then resType
+        else
+          val rhsType = recheck(tree.rhs, WildcardType)
+          resTree match
+            case _: InferredTypeTree =>
+              rhsType
+            case _ =>
+              checkExplicitDefDef(tree, sym, resType, paramRefs)
+    end recheckDefDef
+
+    def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
+      val (formalUsed, formalDead) = resType match
+        case EffectType(_, usedRefs, killedRefs) =>
+          (usedRefs.flatMap(_.toCaptureRefs), killedRefs.flatMap(_.toCaptureRefs))
+        case _ => (Nil, Nil)
+
+      for param <- params do
+        if killed.contains(param) then
+          if !formalDead.contains(param) then
+            report.error(i"Kill set of ${sym} does not contain killed parameter ${param}",
+            tree.srcPos)
+        if used.contains(param) then
+          if !formalDead.contains(param) then
+            report.error(i"Use set of ${sym} does not contain used parameter ${param}", tree.srcPos)
+      resType
+    end checkExplicitDefDef
+
+    override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
+      val appType = super.recheckApply(tree, pt)
+      appType match
+        case EffectType(_, usedElems, killedElems) =>
+          val usedRefs = SimpleIdentitySet(
+            usedElems.filter { ref =>
+            ref.tpe match
+              case tp: CaptureRef if tp.isTrackableRef && !tp.isRootCapability => true
+              case _ => false
+            }.flatMap(_.toCaptureRefs)*).footprint
+
+          for ref <- usedRefs do
+            if killed.contains(ref) then
+              report.error(i"Use of killed variable ${ref} is forbidden!", tree.srcPos)
+            used += ref.stripReach.stripMaybe.stripReadOnly
+
+          val killedRefs = SimpleIdentitySet(
+            killedElems.filter { ref =>
+            ref.tpe match
+              case tp: CaptureRef if tp.isTrackableRef && !tp.isRootCapability => true
+              case _ => false
+            }.flatMap(_.toCaptureRefs)*).footprint
+
+          for ref <- killedRefs do
+            killed += ref.stripReach.stripMaybe.stripReadOnly
+        case _ =>
+      appType.dropTopLevelEff
+    end recheckApply
+
+    override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
+      try super.recheckDef(tree, sym)
+      finally completed += sym
 
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       unit.tpdTree = setup.setupUnit(unit.tpdTree, this)

@@ -81,18 +81,20 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
         if sym.exists && !sym.is(Param) && !sym.is(Module) then
           val forcedRes = tpt.asInstanceOf[TypeTree]
           if forcedRes.isInferred then
-            // if (sym.info != forcedRes.tpe) then
-            //   println(tree.show)
-            //   println(sym.info)
-            //   println(forcedRes.tpe)
-            val newInfo = forcedRes.tpe.dropAllKill
-
+            if (sym.info != forcedRes.tpe) then
+              println("DEBUGGING INFO: VALDEF SYM.INFO != TPT.TPE")
+              println(tree.show)
+              println(sym.info)
+              println(forcedRes.tpe)
+              println("==================================================")
+            val newTptTpe = forcedRes.tpe.dropAllKill
             val newTree = cpy.ValDef(tree)(
               name,
-              tpt.withType(newInfo),
+              tpt.withType(newTptTpe),
               transform(tree.rhs)
             )
 
+            val newInfo = sym.info.dropAllKill // I think some cases exist where sym.info != forcedRes.tpe
             val updatedInfo = new LazyType:
               def complete(denot: SymDenotation)(using Context): Unit =
                 assert(ctx.phase == thisPhase.next, i"$sym")
