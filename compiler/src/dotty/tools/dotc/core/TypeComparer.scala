@@ -699,7 +699,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   case _ =>
           end if
 
-          if isEffCheckingOrSetup then
+          if isEffCheckingOrSetup && onlyEffCheckKill then
             def isSubEff(info1: Type, info2: Type): Boolean = (info1, info2) match
               // for poly should be like PolyType(args, MethodType(...))
               case (info1: PolyType, info2: PolyType) =>
@@ -1498,7 +1498,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   fourthTry
           || tryLiftedToThis2
 
-          if isEffCheckingOrSetup then
+          if isEffCheckingOrSetup && onlyEffCheckKill then
               // if expected type is not dependent function type e.g. File^ => Unit
               // and actual type is dependent function type with kill type e.g. (f: File^) => Unit @kill(f)
               // then it should fail - in this case expected type is just an AppliedType

@@ -79,16 +79,6 @@ object KillOps:
         case KillType(_) => true
         case _ => false
 
-  extension (cref: CaptureRef)
-    def killTree(using Context): Tree =
-      import ast.untpd
-      cref match
-        case cr: TermRef => ref(cr)
-        case cr: TermParamRef => untpd.Ident(cr.paramName).withType(cr)
-        case cr =>
-          println(s"$cr <- is being killed!")
-          untpd.Ident(cr.termSymbol.name).withType(cr)
-
   /**
    * Checks that the variables inside a kill annotation are well-formed
    * Well-formedness conditions:
@@ -156,6 +146,20 @@ object EffOps:
     def killedElems: List[Tree] = tree match
       case Apply(_, Typed(SeqLiteral(elems, _), _) :: Nil) => elems
       case _ => Nil
+
+  extension (tp: Type)
+    def dropAllEff(using Context): Type =
+      val tm = new TypeMap:
+        def apply(t: Type) = t match
+          case EffectType(parent, _, _) =>
+            apply(parent)
+          case _ =>
+            mapOver(t)
+      tm(tp)
+
+    def dropTopLevelEff(using Context): Type = tp match
+      case EffectType(parent, _, _) => parent
+      case tp => tp
 
   /**
    * Well-formedness conditions:1
