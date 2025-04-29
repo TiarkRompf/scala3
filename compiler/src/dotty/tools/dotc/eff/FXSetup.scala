@@ -74,8 +74,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
             case arg: TypeTree =>
               arg.withType(transform(arg).tpe.dropTopLevelKill)
             case _ => arg
-
-        cpy.TypeApply(tree)(transform(fn), droppedArgs)
+        super.transform(cpy.TypeApply(tree)(fn, droppedArgs))
       case tree @ ValDef(name, tpt, rhs) =>
         val sym = tree.symbol
         if sym.exists && !sym.is(Param) && !sym.is(Module) then
