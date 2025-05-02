@@ -13,7 +13,6 @@ import Annotations.*
 
 object KillType:
   import KillOps.*
-
   def apply(tp: Type, refs: List[Tree])(using Context): Type =
     val annotTree =
       New(getKillAnnot.typeRef,
@@ -80,6 +79,13 @@ object KillOps:
         case _ => false
 
   /**
+   * TODO: change this later
+   */
+  def toKilledRefs(elems: List[Tree])(using Context): List[CaptureRef] =
+    // val newElems = elems.updated(elems.indexWhere(_.symbol.isFuncSelfRef), ref(func.symbol))
+    elems.filterConserve(!_.symbol.isFuncSelfRef).flatMap(_.toCaptureRefs)
+
+  /**
    * Checks that the variables inside a kill annotation are well-formed
    * Well-formedness conditions:
    * 1. Must be non-empty
@@ -88,7 +94,7 @@ object KillOps:
    * 4. Must not be a special capability
    * 5. Kill annotation can only appear in (NOT YET CHECKED! TODO!)
    *  a) At top-level of explicit DefDef tpt
-   *  b) As result type of a MethodType
+   *  b) As result type of a MethodType (e.g. A => B @kill(...) => C) should not be allowed
    */
   def checkWellformed(annot: Tree)(using Context): Unit =
     val killedElems = annot.killedElems
@@ -96,16 +102,17 @@ object KillOps:
       report.error(i"Kill set of $annot may be empty.", annot.srcPos)
     else
       val killSet = util.HashSet[Symbol]()
-      for ref <- killedElems do
-        val refSym = ref.symbol
-        if !killSet.add(refSym) then
-          report.error(i"Kill set of $annot has a duplicate ref $ref", annot.srcPos)
-        ref.tpe match
+      for elem <- killedElems do
+        val sym = elem.symbol
+        if !killSet.add(sym) then
+          report.error(i"Kill set of $annot has a duplicate element $elem", annot.srcPos)
+        elem.tpe match
           case ref: CaptureRef if ref.isTrackableRef =>
             if ref.isRootCapability then // hopefully only case that needs handling.
               report.error(i"Killed variable cannot be a root capability!", annot.srcPos)
+          case _ if sym.isFuncSelfRef =>
           case _ =>
-            report.error(i"Killed variable ${ref} is not a capability!", annot.srcPos)
+            report.error(i"Killed variable ${elem} is not a capability!", annot.srcPos)
   end checkWellformed
 end KillOps
 
