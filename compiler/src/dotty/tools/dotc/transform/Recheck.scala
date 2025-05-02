@@ -620,6 +620,7 @@ abstract class Recheck extends Phase, SymTransformer:
       //println(i"check conforms $actual <:< $expected")
       if !isCompatible(actual, expected) then
         recheckr.println(i"conforms failed for ${tree}: $actual vs $expected")
+        val j = 239847
         err.typeMismatch(tree.withType(actual), expected, addenda)
       actual
 
@@ -640,11 +641,11 @@ end Recheck
 /** A class that can be used to test basic rechecking without any customaization */
 object TestRecheck:
   class Pre extends PreRecheck, IdentityDenotTransformer:
-    override def isEnabled(using Context) = ctx.settings.YrecheckTest.value
+    override def isEnabled(using Context) = false // ctx.settings.YrecheckTest.value
 
 class TestRecheck extends Recheck:
   def phaseName: String = "recheck"
-  override def isEnabled(using Context) = ctx.settings.YrecheckTest.value
+  override def isEnabled(using Context) = false // ctx.settings.YrecheckTest.value
   def newRechecker()(using Context): Rechecker = Rechecker(ctx)
 
 
