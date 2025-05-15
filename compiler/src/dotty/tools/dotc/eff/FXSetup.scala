@@ -60,6 +60,16 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                     // TODO - instead of making new methodType, try to do something like integrateRT?
                     denot.info = methodType(sym.paramSymss, newResType, false)
                 updateInfo(sym, updatedInfo)
+
+              case exprType @ ExprType(resType) => // TODO write some tests for this
+                val newInfo = exprType.derivedExprType(resType.dropAllKill)
+                val updatedInfo = new LazyType:
+                  def complete(denot: SymDenotation)(using Context): Unit =
+                    assert(ctx.phase == thisPhase.next, i"$sym")
+                    denot.info = newInfo
+                    val newResType = recheckDef(newTree.asInstanceOf[DefDef], sym)
+                    denot.info = newInfo.derivedExprType(newResType)
+                updateInfo(sym, newInfo)
               case tp =>
                 // println(s"${tp} <- ${sym.show}")
           newTree

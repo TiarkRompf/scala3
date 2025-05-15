@@ -51,6 +51,7 @@ object CheckEffects:
         killAnnot.nn
       case annot => annot
 
+  // Note that function self reference is a CaptureRef, but not a TrackableRef e.g. .isTrackableRef false
   def getFuncSelfRef(using Context): Symbol =
     funcSelfRef match
       case null =>
@@ -156,6 +157,11 @@ class CheckEffects extends Recheck:
       recur(elems, elems.toList)
     end getFP
 
+  /**
+   *  TODO for supporting free variables
+   * 1. more refined subtyping
+   * 2. avoidance with function self ref in recheckBlock
+   */
   class KillChecker(ictx: Context, cc: CheckCaptures.CheckerAPI) extends Rechecker(ictx), FXCheckerAPI:
     import CheckEffects.*
     import cc.*
@@ -167,10 +173,11 @@ class CheckEffects extends Recheck:
     private var killed: mutable.HashSet[CaptureRef] = mutable.HashSet[CaptureRef]()
 
     /*
-     * 1. saved all killed prior to op
+     * 1. save all killed prior to op
      * 2. do op
-     * 3. reset killed to savedkilled
-     * 4. return new killed
+     * 3. make new killed set of all refs killed while doing op
+     * 4. reset killed to savedkilled
+     * 5. return new killed
      *
      * This is really inefficient - find a better solution.
      * Probably the best way is to use something similar to ConsumedSet?
@@ -181,8 +188,7 @@ class CheckEffects extends Recheck:
 
       val res = op
 
-      val newKilled = mutable.HashSet[CaptureRef]()
-      newKilled.addAll(killed)
+      val newKilled = killed.diff(savedKilled)
       killed = savedKilled
       (res, newKilled)
 
@@ -210,7 +216,7 @@ class CheckEffects extends Recheck:
             report.error(i"Use of self-killing function ${ref} is forbidden more than once!.", tree.srcPos)
         case _ =>
 
-      val used = tree.markedFree
+      val used = tree.markedFree ++ tree.symbol.captureVars
       if !used.elems.isEmpty then
         val usedFootprint = used.elems.footprint
         for ref <- usedFootprint do
@@ -239,26 +245,15 @@ class CheckEffects extends Recheck:
      * Note that this there can still be match inside the expr of the Labeled if the match only is on simple switches
      * where every branch is integer or string constant.
      *
-     * So it seems like the way to do inference is to infer the type of expr and then set it as
-     * the type of the Labeled. There are multiple problems:
-     * 1. How do we know that it is impossible for the Labeled to appear as an explicitly given type instead of inferred type
-     * 2. The expression is a Block, with each statement being a different if else. So then we have to recheckBlock but
-     * instead of discarding statements, we have to keep track of their types and probably find the LUB of them somehow? But then
-      this relies on the statements being not pathological in some way which is probably not a good assumption
-
-      3. If the match is incomplete (e.g. leaves out cases), then the last expr of the block will be a throw new MatchError expression,
-      which will be NothingType and must be disregarded. Therefore we also have to deal with this as well. This is especially relevant
-      since tuple deconstruction gets lowered to an incomplete match.
+     * Strategy is to add the killed set to the type of the Return expr if it is returning to a labeled, which can
+     * be checked by using return.from.sym.is(Method) probably.
      */
     override def recheckLabeled(tree: Labeled, pt: Type)(using Context): Type = tree match
       case Labeled(bind, expr) =>
         val (bindType: NamedType) = recheck(bind, pt): @unchecked
         val exprType = recheck(expr, defn.UnitType)
-        // bindType.dropTopLevelKill
         val block = expr.asInstanceOf[Block]
-        block.stats.foreach(stat => println(stat.show))
-        block.expr.show
-        bindType
+        bindType.dropTopLevelKill // temporary salve
 
     override def recheckValDef(tree: ValDef, sym: Symbol)(using Context): Type =
       val resTree = tree.tpt
@@ -270,22 +265,28 @@ class CheckEffects extends Recheck:
       else
         resTree match
           case _: InferredTypeTree =>
-            recheck(tree.rhs, WildcardType) // we infer!
+            recheck(tree.rhs) // we infer!
           case _ =>
             recheck(tree.rhs, resType)
     end recheckValDef
 
+    /**
+     * Algorithm for explicitly given result type (restype)
+     * 1. recheck rhs against restype with top level kill dropped, getting everything killed in rhs (rhsKilled)
+     * 2. check if explicitly given result type accounts for all killed parameters
+     * 3. check if explicitly given result type accounts for all killed captured variables (maybe change to free?)
+     * 4. importantly, do not add rhsKilled to the global killed set - this is okay due to following reasoning:
+     *  1. Parameters - these only exist within the defdef, so irrelevant outside
+     *  2. Local variables - these only exist within defdef, so irrelevant outside
+     *  3. Free variables - we don't want these to be killed yet, we only want them to be killed when defdef is applied, so
+     *     we don't want them in the killed set.
+     *
+     * For inferDefDef we do same but instead of checking we add the killed stuff.
+     */
     override def recheckDefDef(tree: DefDef, sym: Symbol)(using Context): Type =
       val resTree = tree.tpt
       val paramRefs = tree.termParamss.flatten.flatMap(_.toCaptureRefs)
-
-      // if (tree.name.toString == "kmyCap") {
-      //   println(resTree.tpe)
-      //   resTree.tpe match
-      //     case AnnotatedType(parent, annot) =>
-      //       println(annot.symbol)
-      //       println(annot.symbol.isKill)
-      //  }
+      val capturedRefs = sym.captureVars
 
       inContext(linkConstructorParams(sym).withOwner(sym)):
         val resType = recheck(resTree) // totally unnecessary
@@ -295,27 +296,37 @@ class CheckEffects extends Recheck:
           resTree match
             case _: InferredTypeTree =>
               val (rhsType, rhsKilled) = segment(recheck(tree.rhs)) // we infer
-              killed.addAll(rhsKilled)
-              inferDefDef(tree, sym, rhsType, paramRefs)
+              inferDefDef(tree, sym, rhsType, paramRefs, rhsKilled, capturedRefs)
             case _ =>
               val (_, rhsKilled) = segment(recheck(tree.rhs, resType.dropTopLevelKill)) // we discard rhsType
-              killed.addAll(rhsKilled)
-              checkExplicitDefDef(tree, sym, resType, paramRefs)
+              checkExplicitDefDef(tree, sym, resType, paramRefs, rhsKilled, capturedRefs)
     end recheckDefDef
 
     /**
      * Plan - do inference on the tree.tpt and return new inferred, but then
      * in FXSetup when constructing the new MethodType integrate the params
      * into the KillType()
+     *
+     * Note that we do not need to check for what is dead may not return here
+     * since that would be naturally checked by recheckIdent as killed variables can only
+     * occur via application if the DefDef is inferred
+     *
+     * Question: should we add function self reference eagerly if the defdef kills free variables or not?
      */
-    def inferDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
-      val killedParams =
-        for param <- params if killed.contains(param)
-        yield param.refTree
+    def inferDefDef(tree: DefDef, sym: Symbol, rhsType: Type, paramRefs: List[CaptureRef],
+      rhsKilled: mutable.HashSet[CaptureRef], capturedRefs: CaptureSet)(using Context): Type =
+      val allKilled =
+        (paramRefs
+          .filter(rhsKilled.contains(_))
+          .map(_.refTree))
+        :::
+        (capturedRefs.elems
+          .filter(rhsKilled.contains(_))
+          .map(_.refTree).toList)
 
-      if !killedParams.isEmpty then
-        KillType(resType, killedParams)
-      else resType
+      if !allKilled.isEmpty then
+        KillType(rhsType, allKilled)
+      else rhsType
     end inferDefDef
 
     /**
@@ -325,32 +336,40 @@ class CheckEffects extends Recheck:
      * Hopefully it shouldn't be possible for a something capturing a parameter to be
      * killed and the parameter is somehow not in the killed set.
      */
-    def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, params: List[CaptureRef])(using Context): Type =
+    def checkExplicitDefDef(tree: DefDef, sym: Symbol, resType: Type, paramRefs: List[CaptureRef],
+      rhsKilled: mutable.HashSet[CaptureRef], capturedRefs: CaptureSet)(using Context): Type =
       val formalDead = resType match
         case KillType(_, refs) =>
-          refs.flatMap(_.toCaptureRefs)
+          // Can filter out function self ref probably
+          refs.filterConserve(!_.symbol.isFuncSelfRef).flatMap(_.toCaptureRefs)
         case _ => Nil
 
-      for param <- params do
-        if killed.contains(param) then
+      for param <- paramRefs do
+        if rhsKilled.contains(param) then
           if formalDead.isEmpty then
-            // for some reason this doesn't error if there is error in function ody
             report.error(i"Parameter ${param} is killed in ${sym} but ${sym} has no kill annotation!",
             tree.srcPos)
           else if !formalDead.contains(param) then
             report.error(i"Kill set of ${sym} does not contain killed parameter ${param}",
             tree.srcPos)
 
+      for ref <- capturedRefs.elems do
+        if (rhsKilled.contains(ref)) then
+          if formalDead.isEmpty then
+            report.error(i"Captured variable ${ref} is killed in ${sym} but ${sym} has no kill annotation!",
+            tree.srcPos)
+          else if !formalDead.contains(ref) then
+            report.error(i"Kill set of ${sym} does not contain killed capture variable ${ref}",
+            tree.srcPos)
+
       val rhsCaptures = captures(tree.rhs).footprint
       for ref <- rhsCaptures do
         if formalDead.contains(ref) then
-          report.error(i"Killed parameter ${ref} cannot be captured in method result expression.", tree.srcPos)
+          report.error(i"Killed ${ref} cannot be captured in method result expression.", tree.srcPos)
       resType
     end checkExplicitDefDef
 
     /**
-     * If a function kills a value it does not do anything.
-     * Open question: If function kills cap what does it do?
      *
      * Currently recheckApply allows killing capabilities with empty capture sets -
      * should this be forbidden - I think so.
@@ -358,33 +377,44 @@ class CheckEffects extends Recheck:
      * Then we allow only passing into kill function 1. capabilities without empty capture sets
      * 2. values
      *
-     * To check for this I would assume we need to go over deadRefs again and check the capture sets
+     * TODO - forbid killing non-capabilites (trackable capture refs that are not actually tracked)
+     *
+     * Current behavior
+     * 1. Killing a value does nothing
+     * 2. Killing the top capability cap does nothing
+     * 3. Killing a free variable means killing oneself
      */
     override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
       val appType = super.recheckApply(tree, pt)
 
       appType match
         case KillType(parent, refs) =>
-          val killsSelf = refs.exists(_.symbol.isFuncSelfRef)
+          var killsSelf = false
           val deadRefs = SimpleIdentitySet(refs.filter { ref =>
-            ref.tpe match
+             ref.tpe match
+              case selfRef: CaptureRef if selfRef.termSymbol.isFuncSelfRef =>
+                killsSelf = true
+                false
               case tp: CaptureRef if tp.isTrackableRef && !tp.isRootCapability => true
               case _ => false
           }.flatMap(_.toCaptureRefs)*).footprint
 
           for ref <- deadRefs do
-            val currentOwner = ctx.owner // in future do role.dclSym like SepCheck
-            ref.pathRootOrShared match
-              case ref: TermRef =>
-                val refOwner = ref.symbol.maybeOwner.enclosingMethodOrClass
-                if (currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refOwner)) then
-                  report.error(i"Killing a non-local variable ${ref} is prohibited!", tree.srcPos)
-              case _ =>
+            // val currentOwner = ctx.owner // in future do role.dclSym like SepCheck
+            // ref.pathRootOrShared match
+            //   case ref: TermRef =>
+            //     val refOwner = ref.symbol.maybeOwner.enclosingMethodOrClass
+            //     if (currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refOwner)) then
+            //       report.error(i"Killing a non-local variable ${ref} is prohibited!", tree.srcPos)
+            //   case _ =>
             killed += ref.stripReach.stripMaybe.stripReadOnly
 
           if killsSelf then
-            tree.fun.tpe match
-              case ref: CaptureRef => killed += ref
+            val func = tree.fun
+            func.tpe match
+              case ref: CaptureRef =>
+                killed += ref
+                killed.addAll(func.symbol.captureVars.elems.iterator)
               case tp => println(tp)
         case _ =>
       appType.dropTopLevelKill
@@ -404,6 +434,8 @@ class CheckEffects extends Recheck:
      *
      * Maybe there is a better solution than this.
      * The other question is whether recheckTyped() should be changed instead of recheckBlock
+     *
+     * TODO general avoidance for functions killing free variables
      */
     override def recheckBlock(tree: Block, pt: Type)(using Context): Type = tree match
       case Block(stats, typed @ Typed(expr, tpt)) =>
@@ -417,7 +449,7 @@ class CheckEffects extends Recheck:
 
     override def recheckClosureBlock(mdef: DefDef, expr: Closure, pt: Type)(using Context): Type =
         val sym = mdef.symbol
-        sym.ensureCompleted() // unnecessary
+        sym.ensureCompleted() // unnecessary because calling sym.info below will complete it
 
         val newTpe = sym.info match
         case fntpe @ FunctionOrMethod(params, resType) =>
@@ -459,7 +491,7 @@ class CheckEffects extends Recheck:
       TypeComparer.lub(casesType)
 
     /**
-     * Maybe TODO: change the tree.from.symbol.returnProto to OwnType
+     * TODO: do Labeled inference via adding types - see recheckLabeled comment
      */
     override def recheckReturn(tree: Return)(using Context): Type =
       def avoidMap = new TypeOps.AvoidMap:
@@ -477,9 +509,22 @@ class CheckEffects extends Recheck:
       defn.NothingType
     end recheckReturn
 
-    // TODO: prevent killing free variables inside WhileDo
+    // TODO: prevent killing free variables and self-killing functions inside WhileDo
+    // note that preventing killing free variables should already prevent self-killing functions.
+    // I cannot find function to compute free variables of tree wrt to enclosing block so use localSyms
     override def recheckWhileDo(tree: WhileDo)(using Context): Type =
-      super.recheckWhileDo(tree)
+      recheck(tree.cond, defn.BooleanType)
+      val body = tree.body
+      val (_, loopKilled) = segment(recheck(body, defn.UnitType))
+      body match
+        case Block(stats, expr) =>
+          val bound = localSyms(stats)
+          if !(loopKilled.map(_.termSymbol).subtractAll(bound).isEmpty) then
+            report.error("Killing a free variable is prohibited in loop body!", body.srcPos)
+        case _ =>
+          println(s"$body <- WHILE LOOP BODY")
+      killed.addAll(loopKilled)
+      defn.UnitType
 
     override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
       try super.recheckDef(tree, sym)

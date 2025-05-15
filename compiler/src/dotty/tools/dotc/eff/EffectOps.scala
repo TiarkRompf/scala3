@@ -78,12 +78,20 @@ object KillOps:
         case KillType(_) => true
         case _ => false
 
+
   /**
-   * TODO: change this later
+   * Idea - if method type is a kill function, then
+   * remove all non-parameter block-local refs and add a function self ref.
    */
-  def toKilledRefs(elems: List[Tree])(using Context): List[CaptureRef] =
-    // val newElems = elems.updated(elems.indexWhere(_.symbol.isFuncSelfRef), ref(func.symbol))
-    elems.filterConserve(!_.symbol.isFuncSelfRef).flatMap(_.toCaptureRefs)
+  def avoidLocal(using Context) = new TypeOps.AvoidMap:
+    def toAvoid(tp: NamedType): Boolean = true
+    override def apply(tp: Type): Type =
+      tp match
+        case fntpe: MethodType if fntpe.isKillFun =>
+          val killed = fntpe.getKilled.flatMap(_.toCaptureRefs)
+          mapOver(fntpe)
+        case _ => super.apply(tp)
+
 
   /**
    * Checks that the variables inside a kill annotation are well-formed
