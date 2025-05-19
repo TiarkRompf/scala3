@@ -629,7 +629,6 @@ abstract class Recheck extends Phase, SymTransformer:
       //println(i"check conforms $actual <:< $expected")
       if !isCompatible(actual, expected) then
         recheckr.println(i"conforms failed for ${tree}: $actual vs $expected")
-        val j = 239847
         err.typeMismatch(tree.withType(actual), expected, addenda)
       actual
 

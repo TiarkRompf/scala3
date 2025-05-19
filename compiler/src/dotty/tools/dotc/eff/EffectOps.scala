@@ -78,20 +78,56 @@ object KillOps:
         case KillType(_) => true
         case _ => false
 
-
   /**
    * Idea - if method type is a kill function, then
    * remove all non-parameter block-local refs and add a function self ref.
    */
-  def avoidLocal(using Context) = new TypeOps.AvoidMap:
-    def toAvoid(tp: NamedType): Boolean = true
-    override def apply(tp: Type): Type =
-      tp match
-        case fntpe: MethodType if fntpe.isKillFun =>
-          val killed = fntpe.getKilled.flatMap(_.toCaptureRefs)
-          mapOver(fntpe)
-        case _ => super.apply(tp)
+  def avoidKill(tp: Type, symsToAvoid: => List[Symbol])(using Context): Type =
+    lazy val forbidden = symsToAvoid.toSet
+    val escapeMap = new TypeOps.AvoidMap:
+      def toAvoid(tp: NamedType): Boolean =
+        val sym = tp.symbol
+        forbidden.contains(sym)
+      override def apply(tp: Type): Type =
+        tp match
+          case fntpe: MethodType if fntpe.isKillFun =>
+            val KillType(resType, killedRefs) = fntpe.resultType: @unchecked
+            var alreadyKillsSelf = false
+            var needsSelfRef = false
 
+            val goodRefs =
+              killedRefs.filterConserve { ref =>
+                if ref.symbol.isFuncSelfRef then
+                  alreadyKillsSelf = true
+                  false
+                else true
+              }.flatMap(_.toCaptureRefs)
+              .filter { ref => ref match
+                case tp: TermRef if toAvoid(tp) =>
+                  needsSelfRef = true
+                  false
+                case _ => true
+              }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
+
+            val updatedRefs =
+              if alreadyKillsSelf || needsSelfRef then
+                makeFuncSelfRef :: goodRefs
+              else goodRefs
+
+            fntpe.derivedLambdaType(
+              paramInfos = fntpe.paramInfos.mapConserve(apply),
+              resType = KillType(apply(resType), updatedRefs)
+            )
+          case tp: TypeVar if mapCtx.typerState.constraint.contains(tp) => // copied from avoid
+            val lo = TypeComparer.instanceType(
+              tp.origin,
+              fromBelow = variance > 0 || variance == 0 && tp.hasLowerBound,
+              tp.widenPolicy)(using mapCtx)
+            val lo1 = apply(lo)
+            if (lo1 ne lo) lo1 else tp
+          case _ => super.apply(tp)
+    escapeMap(tp)
+  end avoidKill
 
   /**
    * Checks that the variables inside a kill annotation are well-formed
