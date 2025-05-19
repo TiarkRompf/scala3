@@ -13,7 +13,6 @@ import StdNames.nme
 import util.{SimpleIdentitySet, EqHashMap, SrcPos}
 import tpd.*
 import reflect.ClassTag
-import eff.*, CheckEffects.*, KillOps.*
 
 /** The separation checker is  a tree traverser that is run after capture checking.
  *  It checks tree nodes for various separation conditions, explained in the
@@ -692,9 +691,6 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
         then
           val refs = tpe.deepCaptureSet.elems
           val toCheck = refs.hidden.footprint.deduct(refs.footprint)
-          // println(tpe)
-          // println(s"${refs} <- refs")
-          // println(s"${toCheck} <- toCheck")
           checkConsumedRefs(toCheck, tpe, role, i"${role.description} $tpe hides", pos)
       case TypeRole.Argument(arg) =>
         if tpe.hasAnnotation(defn.ConsumeAnnot) then
@@ -759,8 +755,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
    *  perform a separation check with `checkApply`
    */
   private def traverseApply(tree: Tree, argss: List[List[Tree]])(using Context): Unit = tree match
-    case app @ Apply(fn, args) =>
-      traverseApply(fn, args :: argss)
+    case Apply(fn, args) => traverseApply(fn, args :: argss)
     case TypeApply(fn, args) => traverseApply(fn, argss) // skip type arguments
     case _ =>
       if argss.nestedExists(_.needsSepCheck) then
@@ -778,85 +773,12 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
    */
   def checkValOrDefDef(tree: ValOrDefDef)(using Context): Unit =
     if !tree.symbol.isOneOf(TermParamOrAccessor) && !isUnsafeAssumeSeparate(tree.rhs) then
-      // println(s"${tree.symbol} --------------------------------------")
       checkType(tree.tpt, tree.symbol)
       if previousDefs.nonEmpty then
         capt.println(i"sep check def ${tree.symbol}: ${tree.tpt} with ${captures(tree.tpt).hidden.footprint}")
         defsShadow ++= captures(tree.tpt).hidden.footprint.deductSym(tree.symbol)
         resultType(tree.symbol) = tree.tpt.nuType
         previousDefs.head += tree
-
-  /**
-   * Effect Checking
-   */
-  private val killedSyms = util.HashSet[Symbol]() // change to Refs later?
-
-  /**
-   * Used in traverseApply
-   */
-  private def checkKillApp(app: Apply, args: List[Tree])(using Context): Unit =
-    app.tpe match
-      case KillType(_, refs) =>
-        val killSet = refs.map(_.symbol).toSet
-        val killedArgs = args.filter(arg => killSet.contains(arg.symbol))
-        for arg <- killedArgs do
-          val ac = formalCaptures(arg)
-          val hiddenInRef = ac.hidden.footprint
-          hiddenInRef.foreach(killedSyms += _.termSymbol)
-      case _ =>
-
-  /**
-   * Should this take in a tree or Ident?
-   */
-  private def checkKilled(tree: Tree)(using Context): Unit =
-    val sym = tree.symbol
-    if killedSyms.contains(sym) then
-        report.error(i"Use of '${tree.symbol}' is prohibited after kill.", tree.srcPos)
-    val used = tree.markedFree
-    if !used.elems.isEmpty then
-      val usedFootprint = used.elems.footprint
-      for ref <- usedFootprint do
-        if killedSyms.contains(ref.termSymbol) then
-          report.error(i"Use of ${tree.symbol} is prohibited.\nIt captures ${ref} which is killed.", tree.srcPos)
-
-  private def checkDeadRes(tree: DefDef)(using Context): Unit =
-    tree.tpt.tpe match
-      case KillType(_, refs) =>
-        val killSet = util.HashSet[Symbol]()
-        refs.foreach(killSet += _.symbol)
-        val rhsCaptures = captures(tree.rhs).footprint
-        for ref <- rhsCaptures do
-          if killSet.contains(ref.termSymbol) then
-            report.error(i"Killed symbol ${ref.show} cannot be captured in method result expression.", tree.srcPos)
-      case _ =>
-
-  private def checkResConforms(tree: DefDef)(using Context): Unit =
-      val sym = tree.symbol
-      val argSyms = tree.termParamss.flatten.map(_.symbol)
-      val formalDead = tree.tpt.tpe.getKilled
-      // Checks if killset accounts for each argument
-      def accountsFor(): Unit =
-        for arg <- argSyms do
-          if killedSyms.contains(arg) then
-            if formalDead.isEmpty then
-              report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!",
-              tree.srcPos)
-            else if !formalDead.contains(arg) then
-              report.error(i"Kill set of ${sym.name} does not contain killed argument ${arg.name}",
-              tree.srcPos)
-
-      if !(tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased) then
-        if (sym.isRealMethod) then
-          tree.tpt match
-            case _: InferredTypeTree =>
-              for arg <- argSyms do
-                if killedSyms.contains(arg) then
-                  report.error(i"Parameter ${arg.name} is killed in ${sym.name} but ${sym.name} has no kill annotation!",
-                  tree.srcPos)
-            case _ =>
-              accountsFor()
-        else () // this is a big problem, TODO!
-          // accountsFor()
 
   /** Traverse `tree` and perform separation checks everywhere */
   def traverse(tree: Tree)(using Context): Unit =
