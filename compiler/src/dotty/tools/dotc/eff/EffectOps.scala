@@ -81,6 +81,8 @@ object KillOps:
   /**
    * Idea - if method type is a kill function, then
    * remove all non-parameter block-local refs and add a function self ref.
+   *
+   * TODO: handle non dependent function types since they are just applied types.
    */
   def avoidKill(tp: Type, symsToAvoid: => List[Symbol])(using Context): Type =
     lazy val forbidden = symsToAvoid.toSet

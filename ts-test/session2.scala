@@ -9,23 +9,45 @@ import scala.annotation, annotation.tailrec
 class kill(xs: Any*) extends annotation.StaticAnnotation
 
 // object CCHack:
-//   def assumeFresh[E, P <: Protocol](x: Chan[E, P]): Chan[E, P]^ =
+//   def assumeFresh[E, P <: Session](x: Chan[E, P]): Chan[E, P]^ =
 //     x.asInstanceOf[Chan[E, P]^]
+
+// problem - cannot instantiate T with a fresh capability.
+def loop1[T](x: T)(cond: => Boolean)(body: (y: T) ->{cap} T @kill(y)): Unit @kill(x) =
+  if cond then
+    val y = body(x)
+    loop1(y)(cond)(body)
+
+// problem is we cannot instantiate U with the channel capability
+// def loop2[T, U](x: T)(cond: => Boolean)(body: (x: T) => Either[T, U] @kill(x)): U @kill(x) =
+//   if cond then
+//     body(x) match
+//       case Left(x) => loop2(x)(cond)(body)
+//       case Right(y) => y
+
+def loopS[E, P <: Session](chan: Chan, c: chan.Protocol[E, P]^)(cond: => Boolean)
+  (body: (c: chan.Protocol[E, P]^) => Option[chan.Protocol[E, P]^] @kill(c)): Unit @kill(c) =
+    if cond then
+      body(c) match
+        case Some(c) =>
+          loopS(chan, c)(cond)(body)
+        case None =>
+
 
 trait Nat
 class Z extends Nat
-class S[A <: Nat] extends Nat
+class S[N <: Nat] extends Nat
 
-trait Protocol
-class Send[T, P <: Protocol] extends Protocol
-class Recv[T, P <: Protocol] extends Protocol
-class Choose[L <: Protocol, R <: Protocol] extends Protocol
-class Offer[L <: Protocol, R <: Protocol] extends Protocol
-class Rec[P <: Protocol] extends Protocol
-class Var[N <: Nat] extends Protocol
-class Close extends Protocol
+trait Session
+class Send[T, P <: Session] extends Session
+class Recv[T, P <: Session] extends Session
+class Choose[L <: Session, R <: Session] extends Session
+class Offer[L <: Session, R <: Session] extends Session
+class Rec[P <: Session] extends Session
+class Var[N <: Nat] extends Session
+class Close extends Session
 
-type Dual[P <: Protocol] <: Protocol = P match
+type Dual[P <: Session] <: Session = P match
   case Send[t, p] => Recv[t, Dual[p]]
   case Recv[t, p] => Send[t, Dual[p]]
   case Choose[l, r] => Offer[Dual[l], Dual[r]]
@@ -35,41 +57,44 @@ type Dual[P <: Protocol] <: Protocol = P match
   case Close => Close
 
 class Chan:
-  type Proto[E, P <: Protocol]
-
+  type Protocol[E, P <: Session]
+  private var _isOpen = true
+  def isOpen = _isOpen
 
 object Chan:
   extension (chan: Chan)
-    def make[P <: Protocol](): (chan.Proto[Unit, P], chan.Proto[Unit, Dual[P]]) =
-      (0.asInstanceOf[chan.Proto[Unit, P]], 1.asInstanceOf[chan.Proto[Unit, Dual[P]]])
+    def make[P <: Session](): (chan.Protocol[Unit, P]^, chan.Protocol[Unit, Dual[P]]^) =
+      (0.asInstanceOf[chan.Protocol[Unit, P]], 1.asInstanceOf[chan.Protocol[Unit, Dual[P]]])
 
-    def rec_push[E, P <: Protocol](c: chan.Proto[E, Rec[P]]): (chan.Proto[(P, E), P]) =
-      c.asInstanceOf[chan.Proto[(P, E), P]]
+    def rec_push[E, P <: Session](c: chan.Protocol[E, Rec[P]]^): (chan.Protocol[(P, E), P]^) @kill(c) =
+      c.asInstanceOf[chan.Protocol[(P, E), P]]
 
-    def rec_top[E, P <: Protocol](c: chan.Proto[(P, E), Var[Z]]): (chan.Proto[(P, E), P]) =
-      c.asInstanceOf[chan.Proto[(P, E), P]]
+    def rec_top[E, P <: Session](c: chan.Protocol[(P, E), Var[Z]]): (chan.Protocol[(P, E), P]) @kill(c) =
+      c.asInstanceOf[chan.Protocol[(P, E), P]]
 
-    def rec_pop[E, P <: Protocol, N <: Nat](c: chan.Proto[(P, E), Var[S[N]]]): (chan.Proto[E, Var[N]]) =
-      c.asInstanceOf[chan.Proto[E, Var[N]]]
+    def rec_pop[E, P <: Session, N <: Nat](c: chan.Protocol[(P, E), Var[S[N]]]): (chan.Protocol[E, Var[N]]) @kill(c) =
+      c.asInstanceOf[chan.Protocol[E, Var[N]]]
 
-    def send[E, P <: Protocol, T](c: chan.Proto[E, Send[T, P]]): (chan.Proto[E, P]) =
-      c.asInstanceOf[chan.Proto[E, P]]
+    def send[E, P <: Session, T](x: T, c: chan.Protocol[E, Send[T, P]]^): (chan.Protocol[E, P]^) @kill(c) =
+      c.asInstanceOf[chan.Protocol[E, P]]
 
-    def recv[E, P <: Protocol, T](c: chan.Proto[E, Recv[T, P]]): (chan.Proto[E, P], T) =
-      (c.asInstanceOf[chan.Proto[E, P]], 0.asInstanceOf[T])
+    def recv[E, P <: Session, T](c: chan.Protocol[E, Recv[T, P]]^): (chan.Protocol[E, P], T^) @kill(c) =
+      (c.asInstanceOf[chan.Protocol[E, P]], 0.asInstanceOf[T])
 
-    def left[E, L <: Protocol, R <: Protocol](c: chan.Proto[E, Choose[L, R]]): (chan.Proto[E, L]) =
-      c.asInstanceOf[chan.Proto[E, L]]
+    def left[E, L <: Session, R <: Session](c: chan.Protocol[E, Choose[L, R]]^): (chan.Protocol[E, L]^) @kill(c)=
+      c.asInstanceOf[chan.Protocol[E, L]]
 
-    def right[E, L <: Protocol, R <: Protocol](c: chan.Proto[E, Choose[L, R]]): (chan.Proto[E, R]) =
-      c.asInstanceOf[chan.Proto[E, R]]
+    def right[E, L <: Session, R <: Session](c: chan.Protocol[E, Choose[L, R]]^): (chan.Protocol[E, R]^) @kill(c) =
+      c.asInstanceOf[chan.Protocol[E, R]]
 
     // this one is a problem
     // how to return Either implicitly?
-    def offer[E, L <: Protocol, R <: Protocol](c: chan.Proto[E, Offer[L, R]]): Either[chan.Proto[E, L], chan.Proto[E, R]] =
-      Left(c.asInstanceOf[chan.Proto[E, L]])
+    def offer[E, L <: Session, R <: Session](c: chan.Protocol[E, Offer[L, R]]^):
+        (Either[chan.Protocol[E, L]^, chan.Protocol[E, R]^]) @kill(c) =
+      Left(c.asInstanceOf[chan.Protocol[E, L]])
 
-    def close[E](c: chan.Proto[E, Close]): Unit = ()
+    def close[E](c: chan.Protocol[E, Close]^): Unit =
+      chan._isOpen = false
 
 type EchoSInner = Recv[String, Offer[Var[Z], Close]]
 type EchoServer = Rec[EchoSInner]
@@ -77,22 +102,39 @@ type EchoCInner = Dual[EchoSInner]
 type EchoClient = Dual[EchoServer]
 
 object EchoServer:
-  def apply(chan: Chan, c: chan.Proto[Unit, EchoServer]) =
-    var cInner = chan.rec_push(c)
-    var isOpen = true
+  def apply(chan: Chan, c: chan.Protocol[Unit, EchoServer]^) =
+    val cInner = chan.rec_push(c)
 
-    while (isOpen) {
-      val (c2, msg) = chan.recv(cInner)
-      println(msg)
+  //   loop1[Option[chan.Protocol[(EchoSInner, Unit), EchoSInner]^]](Some(cInner))(chan.isOpen) { oc =>
+  //     oc.flatMap { c =>
+  //       val (c2, msg) = chan.recv(cInner)
+  //       println(msg)
 
-      chan.offer(c2) match
-        case Left(c) =>
-          cInner = chan.rec_top(c)
-        case Right(c) =>
-          chan.close(c)
-          isOpen = false
-    }
+  //       chan.offer(c2) match
+  //         case Left(c) =>
+  //           Some(chan.rec_top(c))
+  //         case Right(c) =>
+  //           chan.close(c)
+  //           None
+  //     }
+  //  }
   end apply
+  // def badApply(chan: Chan, c: chan.Protocol[Unit, EchoServer]^) =
+  //   var cInner = chan.rec_push(c)
+  //   var isOpen = true
+
+  //   while (isOpen) {
+  //     val (c2, msg) = chan.recv(cInner)
+  //     println(msg)
+
+  //     chan.offer(c2) match
+  //       case Left(c) =>
+  //         cInner = chan.rec_top(c)
+  //       case Right(c) =>
+  //         chan.close(c)
+  //         isOpen = false
+  //   }
+  // end badApply
 
 // object EchoClient:
 //   def readLine(): String = "something"

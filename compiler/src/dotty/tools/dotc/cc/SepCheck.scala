@@ -377,7 +377,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
       if clashIdx == 0 && !isShowableMethod then "" // we already mentioned the type in `funStr`
       else i" with type  ${clashing.nuType}"
     val hiddenSet = formalCaptures(polyArg).hiddenSet
-    val clashSet = captures(clashing)
+    val clashSet = captures(clashing) ++ clashing.symbol.captureVars.elems
     report.error(
       em"""Separation failure: argument of type  ${polyArg.nuType}
           |to $funStr

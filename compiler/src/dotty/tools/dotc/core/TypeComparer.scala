@@ -27,6 +27,7 @@ import Capabilities.Capability
 import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
 import eff.*, CheckEffects.*, KillOps.*
+import dotty.tools.dotc.core.Phases.checkCapturesPhase
 
 /** Provides methods to compare types.
  */
@@ -685,6 +686,10 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           end if
 
           if isEffCheckingOrSetup && onlyEffCheckKill then
+            extension (x: CaptureRef)
+              def crefSubsumes(y: CaptureRef): Boolean =
+                atPhase(checkCapturesPhase)(x.subsumes(y))
+
             def isSubEff(info1: Type, info2: Type): Boolean = (info1, info2) match
               // for poly should be like PolyType(args, MethodType(...))
               case (info1: PolyType, info2: PolyType) =>
@@ -704,10 +709,16 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
               case (info1: MethodType, info2: MethodType) =>
                 if info1.resultType.isKillType then
                   val substInfo1 = info1.resultType.subst(info1, info2)
-                  val killSet1 = substInfo1.getKilled.map(_.tpe).toSet
-                  val killSet2 = info2.resultType.getKilled.map(_.tpe).toSet
+                  val killSet1 = substInfo1.getKilled.flatMap(_.toCaptureRefs).toSet
+                  val killSet2 = info2.resultType.getKilled.flatMap(_.toCaptureRefs).toSet
 
-                  killSet1.subsetOf(killSet2) &&
+                  val cond1 =
+                    killSet1.forall(ref1 =>
+                      killSet2.exists(ref2 =>
+                      ref1.subsumes(ref2))
+                    )
+
+                  cond1 &&
                     matchingMethodParams(info1, info2) &&
                     isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
                 else

@@ -10,13 +10,14 @@ import ast.tpd, tpd.*
 import transform.{PreRecheck, Recheck}
 import annotation.tailrec
 import cc.*
-import CaptureSet.*
+import CaptureRef.*, CaptureSet.*
 import Recheck.*
 import NamerOps.{linkConstructorParams, methodType}
 import util.SimpleIdentitySet
 import Annotations.*
 import config.Feature
 import collection.mutable
+import typer.ErrorReporting.{err, Addenda}
 
 object CheckEffects:
   val name: String = "eff"
@@ -152,10 +153,10 @@ class CheckEffects extends Recheck:
       def recur(elems: Refs, newElems: List[CaptureRef]): Refs = newElems match
         case newElem :: newElems1 =>
           val superElems = newElem.captureSetOfInfo.elems.filter: superElem =>
-            !superElem.isMaxCapability && !elems.contains(superElem)
+            !superElem.isRootCapability && !elems.contains(superElem)
           recur(elems ++ superElems, newElems1 ++ superElems.toList)
         case Nil => elems
-      val elems: Refs = refs.filter(!_.isMaxCapability)
+      val elems: Refs = refs.filter(!_.isRootCapability)
       recur(elems, elems.toList)
     end getFP
 
@@ -202,8 +203,8 @@ class CheckEffects extends Recheck:
       completed.contains(sym)
 
     extension [T <: Tree](tree: T)
-      def hasCCType: Boolean = cc.hasNuType(tree)
-      def ccType(using Context): Type = cc.nuType(tree)
+      private def hasCCType: Boolean = cc.hasNuType(tree)
+      private def ccType(using Context): Type = cc.nuType(tree)
 
     private def captures(tree: Tree)(using Context): Refs =
       atPhase(checkCapturesPhase)(tree.ccType.deepCaptureSet.elems)
@@ -412,11 +413,17 @@ class CheckEffects extends Recheck:
             killed += ref.stripReach.stripMaybe.stripReadOnly
 
           if killsSelf then
-            val func = tree.fun
-            func.tpe match
+            val fn = tree.fun
+            val (fntpe, fnCS) = fn match
+              case Select(qual, _) => // func.apply() is Select(func, apply) for some closure func
+                (qual.tpe, captures(qual).footprint)
+              case _ =>
+                (fn.tpe, fn.symbol.captureVars.elems)
+
+            fntpe match
               case ref: CaptureRef =>
                 killed += ref
-                killed.addAll(func.symbol.captureVars.elems.iterator)
+                killed.addAll(fnCS.iterator)
               case tp => println(tp)
         case _ =>
       appType.dropTopLevelKill
@@ -535,6 +542,55 @@ class CheckEffects extends Recheck:
     override def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type =
       try super.recheckDef(tree, sym)
       finally completed += sym
+
+    /**
+     *  Given some function type A ->{q1} B @kill(q2), we want to compute transitive closure
+     *  of the function self refs by transitively replacing every function self ref with the function's qualifier (capture set).
+     *
+     *  first problem - function types may not always have an associated name/binding.
+     *  Maybe solution is to partition functions with self refs into two categories - ones bound to name and ones that are not.
+     *  The ones that are not bound to a name should not be added to saturated set, and this is okay since they aren't bound so
+     *  can never be reached by something. Ones that are bound should be also be added.
+     *
+     *  second problem - in CT cap is used to for escaping rather than a function self-ref what to do there? There is problem
+     *  where cap simultaneously represents fresh but also anything.
+     *
+     *  Tentative strategy:
+     *  For each func: A->{q1} B @kill(q2), check if there exists any self ref in q2.
+     *  If exists self ref, then we need to figure out how to get the capture set.
+     *  .captureSet and .captureSetOfInfo methods only work correctly at the TermRef level
+     *  or if the type is a RetainingType/CapturingType, and most of the time the expected type is
+     *  not bound to any name (e.g. return type of function).
+     *
+     *  foo: A ->{q1} B @kill(q2) where FUN \in q2
+     *  where bar \in q1
+     *  and then
+     *  bar: C ->{q3} D @kill(q4) where FUN \in q4
+     *
+     */
+    private def saturate(tp: Type)(using Context): Type =
+      val tm = new TypeMap:
+        def apply(t: Type) = t match
+          case tpe @ RetainingType(defn.FunctionTypeOfMethod(mt), refs) if mt.isKillFun =>
+            val KillType(resType, killedRefs) = mt.resultType: @unchecked
+            // println(killedRefs)
+            val cs = atPhase(checkCapturesPhase)(tpe.captureSet)
+            tpe
+          case fntpe: MethodType if fntpe.isKillFun =>
+            val KillType(resType, killedRefs) = fntpe.resultType: @unchecked
+            fntpe
+          case _ =>
+            mapOver(t)
+      tm(tp)
+
+    override def checkConformsExpr(actual: Type, expected: Type, tree: Tree, addenda: Addenda)(using Context): Type =
+      // val expected1 = saturate(expected)
+      // println(atPhase(checkCapturesPhase)(expected.dropAllKill.captureSet))
+      if !isCompatible(actual, expected) then
+        // println(actual)
+        // println(expected)
+        err.typeMismatch(tree.withType(actual), expected, addenda)
+      actual
 
     override def checkUnit(unit: CompilationUnit)(using Context): Unit =
       unit.tpdTree = setup.setupUnit(unit.tpdTree, this)
