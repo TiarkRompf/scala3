@@ -7,7 +7,7 @@ import Phases.*, DenotTransformers.*, SymDenotations.*
 import Contexts.*, Names.*, Flags.*, Symbols.*, Decorators.*
 import Types.*, StdNames.*, Denotations.*
 import ast.tpd, tpd.*
-import cc.*
+import cc.*, Capabilities.*
 import CheckEffects.*
 import Annotations.*
 
@@ -103,7 +103,7 @@ object KillOps:
                   alreadyKillsSelf = true
                   false
                 else true
-              }.flatMap(_.toCaptureRefs)
+              }.flatMap(_.toCapabilities)
               .filter { ref => ref match
                 case tp: TermRef if toAvoid(tp) =>
                   needsSelfRef = true
@@ -153,8 +153,8 @@ object KillOps:
         if !killSet.add(sym) then
           report.error(i"Kill set of $annot has a duplicate element $elem", annot.srcPos)
         elem.tpe match
-          case ref: CaptureRef if ref.isTrackableRef =>
-            if ref.isRootCapability then // hopefully only case that needs handling.
+          case ref: Capability if ref.isTrackableRef =>
+            if ref.isTerminalCapability then // hopefully only case that needs handling.
               report.error(i"Killed variable cannot be a root capability!", annot.srcPos)
           case _ if sym.isFuncSelfRef =>
           case _ =>
@@ -239,14 +239,14 @@ object EffOps:
         if (!useSet.add(urefSym)) then
           report.error(i"Use set of $annot has a duplicate ref $uref", annot.srcPos)
         kref.tpe match
-          case ref: CaptureRef if ref.isTrackableRef =>
-            if ref.isRootCapability then
+          case ref: Capability if ref.isTrackableRef =>
+            if ref.isTerminalCapability then
               report.error(i"Killed variable $ref cannot be a root capability!", annot.srcPos)
           case _ =>
             report.error(i"Killed variable ${kref} is not a capability!", annot.srcPos)
         uref.tpe match
-          case ref: CaptureRef if ref.isTrackableRef =>
-            if ref.isRootCapability then
+          case ref: Capability if ref.isTrackableRef =>
+            if ref.isTerminalCapability then
               report.error(i"Used variable $ref cannot be a root capability!", annot.srcPos)
           case _ =>
             report.error(i"Used variable $uref is not a capability!", annot.srcPos)

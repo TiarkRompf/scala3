@@ -4,7 +4,7 @@ package core
 
 import Types.*, Contexts.*, Symbols.*, Flags.*, Names.*, NameOps.*, Denotations.*
 import Decorators.*
-import Phases.{gettersPhase, elimByNamePhase}
+import Phases.{gettersPhase, elimByNamePhase, checkCapturesPhase}
 import StdNames.nme
 import TypeOps.refineUsingParent
 import collection.mutable
@@ -23,11 +23,10 @@ import typer.Applications.productSelectorTypes
 import reporting.trace
 import annotation.constructorOnly
 import cc.*
-import Capabilities.Capability
+import Capabilities.*
 import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
 import eff.*, CheckEffects.*, KillOps.*
-import dotty.tools.dotc.core.Phases.checkCapturesPhase
 
 /** Provides methods to compare types.
  */
@@ -686,8 +685,8 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           end if
 
           if isEffCheckingOrSetup && onlyEffCheckKill then
-            extension (x: CaptureRef)
-              def crefSubsumes(y: CaptureRef): Boolean =
+            extension (x: Capability)
+              def capabilitySubsumes(y: Capability): Boolean =
                 atPhase(checkCapturesPhase)(x.subsumes(y))
 
             def isSubEff(info1: Type, info2: Type): Boolean = (info1, info2) match
@@ -709,8 +708,8 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
               case (info1: MethodType, info2: MethodType) =>
                 if info1.resultType.isKillType then
                   val substInfo1 = info1.resultType.subst(info1, info2)
-                  val killSet1 = substInfo1.getKilled.flatMap(_.toCaptureRefs).toSet
-                  val killSet2 = info2.resultType.getKilled.flatMap(_.toCaptureRefs).toSet
+                  val killSet1 = substInfo1.getKilled.flatMap(_.toCapabilities).toSet
+                  val killSet2 = info2.resultType.getKilled.flatMap(_.toCapabilities).toSet
 
                   val cond1 =
                     killSet1.forall(ref1 =>

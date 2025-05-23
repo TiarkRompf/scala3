@@ -34,6 +34,11 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   private def updateInfo(sym: Symbol, info: Type)(using Context) =
     sym.updateInfo(thisPhase, info, sym.flags)
 
+  /*
+  Sets up compilation unit for effect checking
+  1. Gives inferred valdefs and defdefs LazyTypes
+  2. TODO: checks that the kill set of a function is a subset of the function captures set + parameters capture set
+  */
   class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
     import checker.*
     import KillOps.*
@@ -90,12 +95,12 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
         if sym.exists && !sym.is(Param) && !sym.is(Module) then
           val forcedRes = tpt.asInstanceOf[TypeTree]
           if forcedRes.isInferred then
-            if (sym.info != forcedRes.tpe) then
-              println("DEBUGGING INFO: VALDEF SYM.INFO != TPT.TPE")
-              println(tree.show)
-              println(sym.info)
-              println(forcedRes.tpe)
-              println("==================================================")
+            // if (sym.info != forcedRes.tpe) then
+            //   println("DEBUGGING INFO: VALDEF SYM.INFO != TPT.TPE")
+            //   println(tree.show)
+            //   println(sym.info)
+            //   println(forcedRes.tpe)
+            //   println("==================================================")
             val newTptTpe = forcedRes.tpe.dropAllKill
             val newTree = cpy.ValDef(tree)(
               name,
@@ -117,6 +122,11 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
             super.transform(tree)
         else
           super.transform(tree)
+      // case Apply(fun, args) =>
+      //   if !args.isEmpty then
+      //     println(s"${args.head.tpe} <- at Setup")
+      //     println(s"---------")
+      //   super.transform(tree)
       case _ =>
         super.transform(tree)
 
