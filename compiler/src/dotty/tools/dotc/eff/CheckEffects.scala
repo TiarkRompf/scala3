@@ -25,6 +25,10 @@ object CheckEffects:
 
   trait FXCheckerAPI:
     def recheckDef(tree: ValOrDefDef, sym: Symbol)(using Context): Type
+
+    extension [T <: Tree](tree: T)
+      def setCCType(tpe: Type): Unit
+      def ccType(using Context): Type
   end FXCheckerAPI
 
   private var CheckEffectsPhase: Phase | Null = null // need to find better than this hack
@@ -40,6 +44,9 @@ object CheckEffects:
     ctxId == effId || ctxId == effId - 1
 
   def onlyEffCheckKill(using Context): Boolean = true // make this dependent on some compiler flag or smth?
+
+  def atCC[T](op: Context ?=> T)(using Context): T =
+    atPhase(checkCapturesPhase)(op)
 
   private var killAnnot: ClassSymbol | Null = null // typestate.kill
   private var funcSelfRef: Symbol | Null = null // typestate.FUN
@@ -104,10 +111,17 @@ object CheckEffects:
       cref match
         case cr: TermRef => ref(cr)
         case cr: TermParamRef => untpd.Ident(cr.paramName).withType(cr)
-        case cr => // ThisType or one of the special capabilities
+        case cr: RootCapability => ref(defn.captureRoot)
+        case cr => // only ThisType
           println(s"$cr <- is being turned into tree!")
           // untpd.Ident(new Name(cr.toString)).withType(cr)
           EmptyTree
+
+    def crefSubsumes(y: Capability)(using Context): Boolean =
+      atCC(cref.subsumes(y))
+
+    def stripAllDC(using Context): Capability =
+        cref.stripReach.stripMaybe.stripReadOnly
 end CheckEffects
 
 /**
@@ -117,10 +131,6 @@ end CheckEffects
  * kill annotation does not have any special capabilities in it (special as defined in CaptureRef).
  * 2. For sym denotations from capture checker, have methods which call cc methods, but atPhase(CCPhase)
  *
- * FUNCTION SELF REF NOTE
- *
- * if function takes in function that kills itself, and calls it, function should say that the function is
- * killed inside the function
  */
 class CheckEffects extends Recheck:
   thisPhase =>
@@ -156,7 +166,7 @@ class CheckEffects extends Recheck:
 
   extension (refs: Refs)
     private def footprint(using Context): Refs =
-      atPhase(checkCapturesPhase)(getFP)
+      atCC(getFP)
 
     private def getFP(using Context): Refs =
       def recur(elems: Refs, newElems: List[Capability]): Refs = newElems match
@@ -208,15 +218,22 @@ class CheckEffects extends Recheck:
 
     private val completed: mutable.HashSet[Symbol] = new mutable.HashSet[Symbol]
 
+    // Maps etaExpanded closure type to TermRef of DefDef
+    private val etaExpanded: mutable.HashMap[Type, Type] = new mutable.HashMap[Type, Type]()
+
     override def skipRecheck(sym: Symbol)(using Context): Boolean =
       completed.contains(sym)
 
     extension [T <: Tree](tree: T)
-      private def hasCCType: Boolean = cc.hasNuType(tree)
-      private def ccType(using Context): Type = cc.nuType(tree)
+      def setCCType(tpe: Type): Unit = cc.setNuType(tree)(tpe)
+      def hasCCType: Boolean = cc.hasNuType(tree)
+      def ccType(using Context): Type = cc.nuType(tree)
 
     private def captures(tree: Tree)(using Context): Refs =
-      atPhase(checkCapturesPhase)(tree.ccType.deepCaptureSet.elems)
+      atCC(tree.ccType.deepCaptureSet.elems)
+
+    private def boxedCaptures(tree: Tree)(using Context): Refs =
+      atCC(tree.ccType.boxedCaptureSet.elems)
 
     override def recheckIdent(tree: Ident, pt: Type)(using Context): Type =
       val sym = tree.symbol
@@ -304,6 +321,12 @@ class CheckEffects extends Recheck:
       val paramRefs = tree.termParamss.flatten.flatMap(_.toCapabilities)
       val capturedRefs = sym.captureVars
 
+      // if (tree.name.toString == "$anonfun") then
+      //   println(atCC(tree.ccType.widen))
+      //   println(atCC(resTree.ccType))
+      //   println(tree.tpe)
+      //   println(resTree.tpe)
+
       inContext(linkConstructorParams(sym).withOwner(sym)):
         val resType = recheck(resTree) // totally unnecessary
         if tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
@@ -315,8 +338,6 @@ class CheckEffects extends Recheck:
               inferDefDef(tree, sym, rhsType, paramRefs, rhsKilled, capturedRefs)
             case _ =>
               val (_, rhsKilled) = segment(recheck(tree.rhs, resType.dropTopLevelKill)) // we discard rhsType
-              // if (tree.name.toString == "kFile") then
-              //   println(tree.tpe.widen)
               checkExplicitDefDef(tree, sym, resType, paramRefs, rhsKilled, capturedRefs)
     end recheckDefDef
 
@@ -385,65 +406,178 @@ class CheckEffects extends Recheck:
       resType
     end checkExplicitDefDef
 
-    // protected override def recheckArg(arg: Tree, formal: Type, pref: ParamRef, app: Apply)(using Context): Type =
-    //   println("-------------------")
-    //   println(arg.tpe)
-    //   println(arg.ccType)
-    //   recheck(arg, formal)
+    protected override def recheckArg(arg: Tree, formal: Type, pref: ParamRef, app: Apply)(using Context): Type =
+      // println("-------------------")
+      // // println(arg)
+      // // println(arg.tpe)
+      // // println(atCC(arg.ccType.widen))
+      // arg match
+      //   case Block(_, Block((mdef: DefDef) :: Nil, closure: Closure)) =>
+      //     println(arg.ccType)
+      //   case _ =>
+      // println(s"${atCC(arg.ccType.widen)} <- ccType")
+      recheck(arg, formal)
+
     /**
+     * TODO - deal with param dependent functions -> something like
+     * def foo(f: File^, y: () => Unit @kill(f)) = ...
      *
-     * Currently recheckApply allows killing capabilities with empty capture sets -
-     * should this be forbidden - I think so.
+     * Note that it is possible for a tree to kill a value that is not a capability. In particular,
+     * function values that are killed must have their capture set killed.
      *
-     * Then we allow only passing into kill function 1. capabilities without empty capture sets
-     * 2. values
+     * Rules for kill:
+     * 1. Killing a non function "value" should do nothing - so first level TypeRefs, ConstantTypes, e.g. new File, 5, etc.
+     * 2. If we kill a ObjectCapability with an EMPTY capture set, then it it ILLEGAL!
+     * 3. Killing a terminal capability does not do anything (can also be error i guess)
+     * 4. If something is killed that is not a Capability but has a capture set, treat it as a capability because it is
+     * probably a application to an anonymous function (or eta expansion), which means we will kill its qualifier
      *
-     * TODO - forbid killing non-capabilites (trackable capture refs that are not actually tracked)
-     *
-     * Current behavior
-     * 1. Killing a value does nothing
-     * 2. Killing the top capability cap does nothing
-     * 3. Killing a free variable means killing self
+     * TODO - deal with polymorphic functions. In particular, we want to make sure that the type variable instantiation is good.
+     * For example, def f[T <: Int](x: T): Unit @kill(x). When we apply f() to something, we would like to give an error.
+     * Or if its not bounded but we instantiate T with a reference to not a capability (this will probably be done in TypeApply).
      */
     override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
-      val appType = super.recheckApply(tree, pt)
+      val fn = tree.fun
+      val args = tree.args
+      val (funtpe0, qualType) = fn match
+        case fun: Select =>
+          val qualType = recheck(fun.qualifier, selectionProto(fun, WildcardType)).widenIfUnstable
+          (recheckSelection(fun, qualType, fun.name, WildcardType), qualType)
+        case _ =>
+          (recheck(tree.fun), NoType)
+      val funtpe1 = if tree.fun.symbol.originalSignaturePolymorphic.exists then tree.fun.tpe else funtpe0
+
+      val fntpe = funtpe1.widen match
+        case fntpe: MethodType => fntpe
+        case tp =>
+          assert(false, i"unexpected type of ${tree.fun} at recheckApply: $tp")
+
+      assert(fntpe.paramInfos.hasSameLengthAs(tree.args))
+      val formals = fntpe.paramInfos
+
+      def recheckArgs(args: List[Tree], formals: List[Type], prefs: List[ParamRef]): List[Type] = args match
+        case arg :: args1 =>
+          val argType = recheckArg(arg, normalizeByName(formals.head), prefs.head, tree)
+          val formals1 =
+            if fntpe.isParamDependent
+            then formals.tail.map(_.substParam(prefs.head, argType))
+            else formals.tail
+          argType :: recheckArgs(args1, formals1, prefs.tail)
+        case Nil =>
+          assert(formals.isEmpty)
+          Nil
+      end recheckArgs
+      val argTypes = recheckArgs(args, formals, fntpe.paramRefs)
+
+      var fntpeIsKill = false
+      // mapping name should be okay, because there cannot be parameters with duplicate names
+      // and there should not be any free variables with same name as then it would be the parameter.
+      val deadRefNameToArg = new util.EqHashMap[Name, Tree]()
+      fntpe.resType match
+        case KillType(_, refs) =>
+          fntpeIsKill = true
+          for ref <- refs do
+            ref.tpe match
+              case tp: TermParamRef if tp.binder == fntpe =>
+                assert(ref.isInstanceOf[Ident])
+                assert(ref.asInstanceOf[Ident].name == tp.paramName)
+                deadRefNameToArg.update(tp.paramName, args(tp.paramNum))
+              case _ =>
+        case _ =>
+
+      val appType = recheckApplication(tree, qualType, fntpe, argTypes)
 
       appType match
         case KillType(parent, refs) =>
+          assert(fntpeIsKill, i"${tree.fun} is not kill function but application type ${appType} is a top level kill type!")
           var killsSelf = false
-          val deadRefs = SimpleIdentitySet(refs.filter { ref =>
-             ref.tpe match
-              case selfRef: Capability if selfRef.termSymbol.isFuncSelfRef =>
+          // first pass filters out function self ref + all non-function non-termref value types.
+          // these are all the stuff that will definitely NOT be added to the killed set.
+          val refs1 = refs.filterConserve: ref =>
+            ref.tpe match
+              case _: ConstantType => false
+              case _: TypeRef => false
+              case tp: CoreCapability if tp.isTerminalCapability => false
+              case selfRef: CoreCapability if selfRef.termSymbol.isFuncSelfRef =>
                 killsSelf = true
                 false
-              case tp: Capability if tp.isTrackableRef && !tp.isTerminalCapability => true
-              case _ => false
-          }.flatMap(_.toCapabilities)*).footprint
+              case _ => true
 
-          for ref <- deadRefs do
-            // val currentOwner = ctx.owner // in future do role.dclSym like SepCheck
-            // ref.pathRootOrShared match
-            //   case ref: TermRef =>
-            //     val refOwner = ref.symbol.maybeOwner.enclosingMethodOrClass
-            //     if (currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refOwner)) then
-            //       report.error(i"Killing a non-local variable ${ref} is prohibited!", tree.srcPos)
-            //   case _ =>
-            killed += ref.stripReach.stripMaybe.stripReadOnly
-
-          if killsSelf then
-            val fn = tree.fun
-            val (fntpe, fnCS) = fn match
-              case Select(qual, _) => // func.apply() is Select(func, apply) for some closure func
-                (qual.tpe, captures(qual).footprint)
+          for ref <- refs1 do
+            ref.tpe match
+              case tp: CoreCapability =>
+                if !tp.isTrackableRef then
+                  report.error(em"Illegal capture ref ${ref} is being killed!", tree.srcPos)
+                else if atCC(tp.captureSetOfInfo.elems.isEmpty) && !tp.derivesFrom(defn.Caps_Capability) then
+                  report.error(em"Capture set of ${ref} is empty! It cannot be killed!", tree.srcPos)
               case _ =>
-                (fn.tpe, fn.symbol.captureVars.elems)
+          end for
 
-            fntpe match
-              case ref: Capability =>
-                killed += ref
+          val ka = new mutable.ListBuffer[Tree]()
+          val kf = new mutable.ListBuffer[Tree]()
+
+          // deadRefNameToArg maps killed ref symbols to tree of arg if ref is killed arg
+          for ref <- refs1 do
+            ref match
+              case Ident(name) =>
+                deadRefNameToArg.lookup(name) match
+                  case null => kf += ref // we add the dead ref tree directly to kf
+                  case tree => ka += tree // we add the argument tree to the ka
+              case _ =>
+
+          // assert(deadRefNameToArg.isEmpty,
+          //   i"A dead argument was not accounted for: ${deadRefNameToArg.keysIterator.toList}\n in ${tree}!")
+
+          val killedArgs = ka.toList
+          val killedFree = kf.toList
+
+          for arg <- killedArgs do
+            killed.addAll((boxedCaptures(arg) ++ captures(arg)).footprint.iterator.map(stripAllDC))
+
+          val deadFree = SimpleIdentitySet(killedFree.filter { ref =>
+            ref.tpe match
+              case tp: ObjectCapability if tp.isTrackableRef => true
+              case tp =>
+                println(i"${tp} <- FILTER DEAD FREE AND FOUND")
+                false
+          }.flatMap(toCapabilities)*).footprint
+
+          killed.addAll(deadFree.iterator.map(stripAllDC))
+
+          val (fnRef, fnCS) = fn match
+            case Select(qual, _) => // func.apply() is Select(func, apply) for some closure func
+              (qual.tpe, captures(qual).footprint)
+            case _ =>
+              (fn.tpe, fn.symbol.captureVars.elems.footprint)
+
+          // if (tree.fun.symbol.name.toString == "func") then
+          //   val arg = tree.args.head
+          //   val ref = refs1.head
+          //   // println(arg.tpe)
+          //   // println(recheck(arg))
+          //   // println(ref.tpe)
+          //   println(s"${killedArgs} <- killedArgs")
+          //   println(s"${killedFree} <- killedFree")
+          //   fntpe.widen match
+          //     case fntpe: MethodType =>
+          //       // println(fntpe.resultType.getKilled.head)
+          //       // println(fntpe.resultType.getKilled.head.tpe)
+          //       // println(fntpe.resultType.substParams(fntpe, tree.args.map(_.tpe)))
+          //     case _ =>
+
+          fnRef match
+            case cref: Capability =>
+              if killsSelf then
+                killed += cref
                 killed.addAll(fnCS.iterator)
-              case tp => println(tp)
+              else if !killedFree.isEmpty then
+                killed += cref // if a function kills a free variable but not itself, then we only add the function to the kill set.
+                  // this is because if we add the entire function qualifier, it is possible for the outer to kill something which
+                  // is NOT in its captured variables. cf TODO
+            case tp =>
+              // println(i"${tp} <- fntpe match in recheckApply") // probably applying closure to something
         case _ =>
+          assert(!fntpeIsKill, i"${tree.fun} is kill function but application type ${appType} is not top level kill type!")
       appType.dropTopLevelKill
     end recheckApply
 
@@ -473,7 +607,7 @@ class CheckEffects extends Recheck:
 
     override def recheckBlock(tree: Block, pt: Type)(using Context): Type = tree match
       case Block(Nil, expr: Block) => recheckBlock(expr, pt)
-      case Block((mdef: DefDef) :: Nil, closure: Closure) =>
+      case block @ Block((mdef: DefDef) :: Nil, closure: Closure) =>
         recheckClosureBlock(mdef, closure.withSpan(tree.span), pt)
       case Block(stats, expr) => recheckBlock(stats, expr)
 
@@ -486,12 +620,14 @@ class CheckEffects extends Recheck:
           if (fntpe.isKillFun) then
             recheckClosure(expr, pt, forceDependent = true)
           else
-            recheckClosure(expr, pt, forceDependent = false)
+            recheckClosure(expr, pt, forceDependent = true)
         case tp =>
           // println(s"${tp} <- ${mdef.name.show}")
-          recheckClosure(expr, pt, forceDependent = false)
+          recheckClosure(expr, pt, forceDependent = true)
 
         expr.setNuType(newTpe)
+        if (isEtaExpansion(mdef)) then
+          etaExpanded += (newTpe -> sym.termRef)
         newTpe
     end recheckClosureBlock
 
@@ -550,8 +686,10 @@ class CheckEffects extends Recheck:
           val bound = localSyms(stats)
           if !(loopKilled.map(_.asInstanceOf[ObjectCapability].termSymbol).subtractAll(bound).isEmpty) then
             report.error("Killing a free variable is prohibited in loop body!", body.srcPos)
-        case _ =>
-          println(s"$body <- WHILE LOOP BODY")
+        case _ => // should only be loop with one expression - in which case it has no bound variables and so killing is not okay.
+          if !(loopKilled.isEmpty) then
+            report.error("Killing a free variable is prohibited in loop body!", body.srcPos)
+          // println(s"$body <- WHILE LOOP BODY")
 
       killed.addAll(loopKilled)
       defn.UnitType
@@ -562,67 +700,102 @@ class CheckEffects extends Recheck:
       finally completed += sym
 
     /**
-     *  Given some function type A ->{q1} B @kill(q2), we want to compute transitive closure
-     *  of the function self refs by transitively replacing every function self ref with the function's qualifier (capture set).
+     *  Given A ->{q1} B @kill(k1) <: A ->{q2} B @kill(k2), we need to
+     *  replace all function self refs in k1 and k2 with q1
      *
-     *  first problem - function types may not always have an associated name/binding.
-     *  Maybe solution is to partition functions with self refs into two categories - ones bound to name and ones that are not.
-     *  The ones that are not bound to a name should not be added to saturated set, and this is okay since they aren't bound so
-     *  can never be reached by something. Ones that are bound should be also be added.
+     *  Stupid Hack:
+     *  An inferred function type will only have FUN in kill set via avoidance. Then say
+     *  the function's kill set is some q, FUN. Therefore, the function's qualifier must be
+     *  {q, cap}, as there must be avoidance performed in the qualifier as well, and the qualifier must be inferred.
      *
-     *  second problem - in CT cap is used to for escaping rather than a function self-ref what to do there? There is problem
-     *  where cap simultaneously represents fresh but also anything.
+     *  An explicit function type can have FUN in kill set without avoidance, e.g. if user
+     *  explicitly gives type as A ->{l, k} B @kill(FUN). But then the function type should be
+     *  wrapped in a RetainingType(..., {l, k}) and we can extract the funcion qualifier from that.
      *
-     *  Tentative strategy:
-     *  For each func: A->{q1} B @kill(q2), check if there exists any self ref in q2.
-     *  If exists self ref, then we need to figure out how to get the capture set.
-     *  .captureSet and .captureSetOfInfo methods only work correctly at the TermRef level
-     *  or if the type is a RetainingType/CapturingType, and most of the time the expected type is
-     *  not bound to any name (e.g. return type of function).
+     *  It is possible for there to be a mix of the two - for example
+     *  val foo = () =>
+          val bar: A ->{...} B = ...
+          ...
+          bar
+     * But the logic should still work.
      *
-     *  foo: A ->{q1} B @kill(q2) where FUN \in q2
-     *  where bar \in q1
-     *  and then
-     *  bar: C ->{q3} D @kill(q4) where FUN \in q4
+     * Idea #2:
+     *  Problem - it is difficult to get the type of some tree at CC phase.
+     *  Major reason - because CC phase only saves types which go through recheckFinish
+     *  For example, in infer example only the top level Block(_, Block(...)) has its type
+     *  saved in nuTypes, since only that reaches recheckFinish as it is the direct argument
+     *  of the function.
      *
+     *  It is probably okay to add tree.setNuType to more functions - this is because
+     *  even though the type of tree may change after it is rechecked due to subtyping (generally CC being constraint solver)
+     *  the actual reference to the type should remain the same, and so the nuType should be changed.
+     *  But then what do we do with this nuType?
+     *  The next problem is that methods inherently lack a capture set. Only when they become closures do they get the
+     *  CapturingType wrapping the MethodType. Then consider how we recheck closure blocks
+     *  infer defdef type -> infer closure type with defdef type -> give closure type to block.
+     *  But then when we infer closure type with defdef type, we toss away the old closure type. But now we have to consider
+     *  it even when inferring. Probably we have to map the capture set from the ccType to the type of the closure in recheckClosureBlock.
      */
     private def saturate(tp: Type)(using Context): Type =
-      val tm = new TypeMap:
+      val tpToCs: util.EqHashMap[Type, CaptureSet] = util.EqHashMap[Type, CaptureSet]()
+      val mapCaptureSets = new TypeTraverser:
+        def traverse(tp: Type): Unit = tp match
+          case tp @ RetainingType(parent, _) =>
+            if tpToCs.lookup(parent) == null then tpToCs(parent) = atCC(tp.captureSet)
+            traverseChildren(tp)
+          case _ => traverseChildren(tp)
+      end mapCaptureSets
+
+      mapCaptureSets.traverse(tp)
+
+      val replaceSelfRef = new TypeMap:
         def apply(t: Type) = t match
-          case tpe @ RetainingType(defn.FunctionTypeOfMethod(mt), refs) if mt.isKillFun =>
+          case tpe @ RefinedType(parent, nme.apply, mt: MethodType) if mt.isKillFun && defn.isFunctionNType(parent) =>
             val KillType(resType, killedRefs) = mt.resultType: @unchecked
-            // println(killedRefs)
-            val cs = atPhase(checkCapturesPhase)(tpe.captureSet)
-            tpe
-          case fntpe: MethodType if fntpe.isKillFun =>
-            val KillType(resType, killedRefs) = fntpe.resultType: @unchecked
-            fntpe
+            val (killsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
+
+            val newRefs = if killsSelf then
+              tpToCs.lookup(tpe) match
+                case null => cleanedRefs
+                case cs =>
+                  cleanedRefs ::: cs.elems.toList.map(refTree)
+              else cleanedRefs
+
+            tpe.derivedRefinedType(
+              parent = mapOver(parent),
+              refinedInfo =
+                mt.derivedLambdaType(
+                  paramInfos = mt.paramInfos.mapConserve(mapOver),
+                  resType = KillType(mapOver(resType), newRefs)
+                )
+            )
+          case tpe @ AppliedType(parent, targs) if defn.isFunctionNType(tpe) && targs.last.isKillType =>
+            // an AppliedType will be a function of (targs.init) => targs.last
+            val KillType(resType, killedRefs) = targs.last: @unchecked
+            val (killsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
+
+            val newRefs = if killsSelf then
+              tpToCs.lookup(tpe) match
+                case null => cleanedRefs
+                case cs =>
+                  cleanedRefs ::: cs.elems.toList.map(refTree)
+              else cleanedRefs
+
+            tpe.derivedAppliedType(
+              mapOver(parent),
+              (targs.init.mapConserve(mapOver)) :+ KillType(mapOver(resType), newRefs)
+            )
           case _ =>
             mapOver(t)
-      tm(tp)
+        end apply
+      end replaceSelfRef
+      replaceSelfRef(tp)
+    end saturate
 
-    /**
-     * Given A ->{q1} B @kill(k1) <: A ->{q2} B @kill(k2), we need to
-     * replace all function self refs in k1 and k2 with q1.
-     *
-     * The problem is that it is not easy to get capture set from a method type.
-     *
-     */
     override def checkConformsExpr(actual: Type, expected: Type, tree: Tree, addenda: Addenda)(using Context): Type =
-      // val expected1 = saturate(expected)
-      // println(atPhase(checkCapturesPhase)(expected.dropAllKill.captureSet))
-      if !isCompatible(actual, expected) then
-        // atPhase(checkCapturesPhase) {
-        //   println("actual")
-        //   println(actual)
-        //   // actual match
-        //   //   case RefinedType(parent, _, mt) =>
-        //   //     println(parent)
-        //   //     println(mt)
-        //   //   case _ =>
-        // }
-        // println("---")
-
+      val actual1 = saturate(actual.widen)  // the widen hopefully shouldn't do anything bad.
+      val expected1 = saturate(expected.widen)
+      if !(actual eq expected) && !(isCompatible(actual1, expected1)) then
         err.typeMismatch(tree.withType(actual), expected, addenda)
       actual
 
@@ -648,6 +821,11 @@ class CheckEffects extends Recheck:
     private var used = util.HashSet[Capability]()
 
     private val completed = new collection.mutable.HashSet[Symbol]
+
+    extension [T <: Tree](tree: T)
+      def setCCType(tpe: Type): Unit = cc.setNuType(tree)(tpe)
+      def hasCCType: Boolean = cc.hasNuType(tree)
+      def ccType(using Context): Type = cc.nuType(tree)
 
     override def skipRecheck(sym: Symbol)(using Context): Boolean =
       completed.contains(sym)

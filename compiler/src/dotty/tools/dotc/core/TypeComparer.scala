@@ -685,48 +685,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           end if
 
           if isEffCheckingOrSetup && onlyEffCheckKill then
-            extension (x: Capability)
-              def capabilitySubsumes(y: Capability): Boolean =
-                atPhase(checkCapturesPhase)(x.subsumes(y))
-
-            def isSubEff(info1: Type, info2: Type): Boolean = (info1, info2) match
-              // for poly should be like PolyType(args, MethodType(...))
-              case (info1: PolyType, info2: PolyType) =>
-                info1.paramNames.hasSameLengthAs(info2.paramNames)
-                && isSubEff(info1.resultType, info2.resultType.subst(info2, info1))
-
-              /*
-              * info1 <: info2 if info1 has no effect and info2 has effect
-              * if info1 has kill eff, we want to check that killset(info1) \subseteq killset(info2)
-              * idea:
-              * substitute info2's param refs into info1 to make substInfo1
-              * get killset of substInfo1
-              * get killset of info2
-              *
-              * then check if substInfo1 \subset info2
-              */
-              case (info1: MethodType, info2: MethodType) =>
-                if info1.resultType.isKillType then
-                  val substInfo1 = info1.resultType.subst(info1, info2)
-                  val killSet1 = substInfo1.getKilled.flatMap(_.toCapabilities).toSet
-                  val killSet2 = info2.resultType.getKilled.flatMap(_.toCapabilities).toSet
-
-                  val cond1 =
-                    killSet1.forall(ref1 =>
-                      killSet2.exists(ref2 =>
-                      ref1.subsumes(ref2))
-                    )
-
-                  cond1 &&
-                    matchingMethodParams(info1, info2) &&
-                    isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
-                else
-                  matchingMethodParams(info1, info2) &&
-                  isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
-              case _ =>
-                isSubType(info1, info2)
-            end isSubEff
-
             if defn.isFunctionType(tp2) then
               if tp2.derivesFrom(defn.PolyFunctionClass) then
                 return isSubEff(tp1.member(nme.apply).info, tp2.refinedInfo)
@@ -1499,17 +1457,22 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           || tryLiftedToThis2
 
           if isEffCheckingOrSetup && onlyEffCheckKill then
-              // if expected type is not dependent function type e.g. File^ => Unit
-              // and actual type is dependent function type with kill type e.g. (f: File^) => Unit @kill(f)
-              // then it should fail - in this case expected type is just an AppliedType
-              if defn.isFunctionType(tp2) then
-                tp1.widen match // maybe should be widenDealias?
-                  case tp1w: RefinedType =>
-                    if tp1w.refinedInfo.isKillFun then
-                      false
-                    else normalComp // maybe we need to recurse further
-                  case _ => normalComp
-              else normalComp
+            val tp1w = tp1.widen
+            if defn.isFunctionNType(tp2) then // is it possible for AppliedType to deriveFrom PolyFunction
+              val defn.FunctionTypeOfMethod(info2) = tp2: @unchecked
+              tp1w.widenDealias match
+                case tp1: RefinedType =>
+                  // println(s"${tp1.refinedInfo.show} <- tp1")
+                  // println(s"${info2.show} <- tp2")
+                  normalComp && isSubEff(tp1.refinedInfo, info2)
+
+                // including the below case messes up the polarity.
+                case tp1: AppliedType if defn.isFunctionNType(tp1) =>
+                  val defn.FunctionTypeOfMethod(info1) = tp1: @unchecked
+                  normalComp && isSubEff(info1, info2)
+                case _ =>
+                  normalComp
+            else normalComp
           else normalComp
 
         case tv: TypeVar =>
@@ -2395,6 +2358,73 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
     }
     loop(tp1.paramInfos, tp2.paramInfos)
   }
+
+  /**
+   *  Compares two MethodOrPoly types to
+   *  check if A -> B @kill <: A -> B @kill
+   *
+   *  The infos should both be saturated (no FUN in killset).
+   *  Note that err.typeMismatch also calls <:<, which means that FUN can appear in
+   *  the killset since we use the non-saturated versions of the types in the error message. This is why
+   *  we filter out FUN even though it shouldn't appear in regular subtyping due to saturation.
+   *
+   *  Usually function parameters are invariant, but we relax it here to be contravariant (same as isSubInfo).
+   */
+  def isSubEff(info1: Type, info2: Type)(using Context): Boolean = (info1, info2) match
+    // for poly should be like PolyType(args, MethodType(...))
+    case (info1: PolyType, info2: PolyType) =>
+      info1.paramNames.hasSameLengthAs(info2.paramNames)
+      && isSubEff(info1.resultType, info2.resultType.subst(info2, info1))
+
+    /*
+    * info1 <: info2 if info1 has no effect and info2 has effect
+    * if info1 has kill eff, we want to check that killset(info1) \subseteq killset(info2)
+    * idea:
+    * substitute info2's param refs into info1 to make substInfo1
+    * get killset of substInfo1
+    * get killset of info2
+    *
+    * then check if substInfo1 \subset info2
+    */
+    case (info1: MethodType, info2: MethodType) =>
+      if info1.resultType.isKillType then
+        val substInfo1 = info1.resultType.subst(info1, info2)
+        val killed1 =
+          try
+            substInfo1.getKilled
+              .filterConserve(!_.symbol.isFuncSelfRef)
+              .flatMap(_.toCapabilities)
+          catch
+            case e: IllegalCaptureRef =>
+              println(s"${substInfo1.getKilled} <- INFO1 BAD CREF")
+              // println(s"${info1.show}")
+              // println(s"${info2.show}")
+              List(GlobalCap)
+
+        val killed2 =
+          try
+            info2.resultType.getKilled
+              .filterConserve(!_.symbol.isFuncSelfRef)
+              .flatMap(_.toCapabilities)
+          catch
+            case e: IllegalCaptureRef =>
+              println(s"${info2.resultType.getKilled} <- INFO2 BAD CREF")
+              Nil
+
+        // the problem with the CS accountsFor is that TermParamRefs
+        // may have no info capture set, which means that they are automatically accounted for even w/empty killed2
+        val cond1 =
+          atCC(killed1.forall(CaptureSet(killed2*).accountsFor))
+
+        cond1 &&
+          matchingMethodParams(info1, info2, precise = false) &&
+          isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+      else
+        matchingMethodParams(info1, info2, precise = false) &&
+        isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+    case _ =>
+      isSubType(info1, info2)
+  end isSubEff
 
   // Type equality =:=
 
@@ -3351,7 +3381,7 @@ object TypeComparer {
   type CoveredStatus = CoveredStatus.Repr
 
   def topLevelSubType(tp1: Type, tp2: Type)(using Context): Boolean =
-    comparing(_.topLevelSubType(tp1, tp2))
+  comparing(_.topLevelSubType(tp1, tp2))
 
   def necessarySubType(tp1: Type, tp2: Type)(using Context): Boolean =
     comparing(_.necessarySubType(tp1, tp2))

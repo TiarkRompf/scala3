@@ -9,7 +9,7 @@ object FUN
 class myCap:
   type pathCap
 
-object Kill2:
+object KillPos1:
   def kmyCap(aba: myCap^): Unit @kill(aba) = ()
 
   def inferTest(l: myCap^, j: myCap^, k: myCap^) =
@@ -49,3 +49,9 @@ object Kill2:
       kmyCap(f)
     }
     val k = f
+
+  def whileTest(b: Boolean): Unit =
+    val l: myCap^ = new myCap
+    while (b) do
+      val k: myCap^ = new myCap
+      kmyCap(k)

@@ -79,10 +79,38 @@ object KillOps:
         case _ => false
 
   /**
+   * Given KillType(..., refs),
+   * returns (whether refs has self ref, refs without self ref)
+   */
+  def cleanSelfRef(refs: List[Tree])(using Context): (Boolean, List[Tree]) =
+    var killsSelf = false
+    val cleaned = refs.filterConserve { ref =>
+      if (ref.symbol.isFuncSelfRef) then
+        killsSelf = true
+        false
+      else true
+    }
+    (killsSelf, cleaned)
+  end cleanSelfRef
+
+  /**
    * Idea - if method type is a kill function, then
    * remove all non-parameter block-local refs and add a function self ref.
    *
-   * TODO: handle non dependent function types since they are just applied types.
+   * We do NOT want the default avoidance behavior for the kill annotation because what will happen is by
+   * default, avoidance replaces local TermRefs with their types, but then the problem is that replaced type
+   * is not a capability!
+   *
+   * The case for applied types is mainly because of how refined types work
+   * A refined function is something like RefinedType(AppliedType(), apply, MethodType(...))
+   * So the MethodType case will handle that, but the AppliedType still needs work, since the
+   * applied type will be the non-dependent function type, but it will still have the kill annotation
+   * in the last argument.
+   *
+   * The other way to avoid doing this is probably to drop all kill annotations in the parent
+   * of any refined function type after mapping over it in saturate. This solution means that the
+   * AppliedType is not going to be aligned with the refined function type, which could be bad so for now
+   * I'm going with handling AppliedTypes in avoidance.
    */
   def avoidKill(tp: Type, symsToAvoid: => List[Symbol])(using Context): Type =
     lazy val forbidden = symsToAvoid.toSet
@@ -94,16 +122,11 @@ object KillOps:
         tp match
           case fntpe: MethodType if fntpe.isKillFun =>
             val KillType(resType, killedRefs) = fntpe.resultType: @unchecked
-            var alreadyKillsSelf = false
+            val (alreadyKillsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
             var needsSelfRef = false
 
             val goodRefs =
-              killedRefs.filterConserve { ref =>
-                if ref.symbol.isFuncSelfRef then
-                  alreadyKillsSelf = true
-                  false
-                else true
-              }.flatMap(_.toCapabilities)
+              cleanedRefs.flatMap(_.toCapabilities)
               .filter { ref => ref match
                 case tp: TermRef if toAvoid(tp) =>
                   needsSelfRef = true
@@ -119,6 +142,29 @@ object KillOps:
             fntpe.derivedLambdaType(
               paramInfos = fntpe.paramInfos.mapConserve(apply),
               resType = KillType(apply(resType), updatedRefs)
+            )
+          case tpe @ AppliedType(parent, targs) if defn.isFunctionNType(tpe) && targs.last.isKillType =>
+            // an AppliedType will be a function of (targs.init) => targs.last
+            val KillType(resType, killedRefs) = targs.last: @unchecked
+            val (alreadyKillsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
+            var needsSelfRef = false
+            val goodRefs =
+              cleanedRefs.flatMap(_.toCapabilities)
+              .filter { ref => ref match
+                case tp: TermRef if toAvoid(tp) =>
+                  needsSelfRef = true
+                  false
+                case _ => true
+              }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
+
+            val updatedRefs =
+              if alreadyKillsSelf || needsSelfRef then
+                makeFuncSelfRef :: goodRefs
+              else goodRefs
+
+            tpe.derivedAppliedType(
+              mapOver(parent),
+              (targs.init.mapConserve(mapOver)) :+ KillType(mapOver(resType), updatedRefs)
             )
           case tp: TypeVar if mapCtx.typerState.constraint.contains(tp) => // copied from avoid
             val lo = TypeComparer.instanceType(
