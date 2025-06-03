@@ -13,7 +13,6 @@ import Recheck.*
 import cc.*
 import CheckEffects.*
 import NamerOps.{methodType}
-import dotty.tools.dotc.transform.CheckUnused.underlying
 
 trait FXSetupAPI:
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree
@@ -59,11 +58,18 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
             for ref <- crefs do
               if atCC(ref.captureSetOfInfo.elems.isEmpty)
                   && !ref.coreType.derivesFrom(defn.Caps_Capability) then
+
                 val isPolyParam = ref.coreType match
                   case ref: TermRef =>
                     ref.typeSymbol.isTypeParam
+                  case ref: TermParamRef =>
+                    ref.typeSymbol.isTypeParam
                   case _ => false
-                if !isPolyParam then
+                // we check deep capture set since
+                // for tuples, only the deep capture set has a capability.
+                // probably special case this for common data structures like tuples and lists.
+                // instead of checking in general? who knows.
+                if !isPolyParam && atCC(ref.coreType.deepCaptureSet.elems.isEmpty) then
                   report.error(em"${ref} cannot be killed since its capture set is empty!", tree.srcPos)
             traverseChildren(parent)
           case defn.RefinedFunctionOf(mt) =>

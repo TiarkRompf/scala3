@@ -2414,7 +2414,8 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
         // the problem with the CS accountsFor is that TermParamRefs
         // may have no info capture set, which means that they are automatically accounted for even w/empty killed2
         val cond1 =
-          atCC(killed1.forall(CaptureSet(killed2*).accountsFor))
+          atCC(killed1.forall(CaptureSet(killed2*).accountsFor)) ||
+          killed2.exists(_.isTerminalCapability)
 
         cond1 &&
           matchingMethodParams(info1, info2, precise = false) &&

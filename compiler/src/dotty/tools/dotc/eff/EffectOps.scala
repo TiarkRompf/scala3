@@ -118,62 +118,68 @@ object KillOps:
       def toAvoid(tp: NamedType): Boolean =
         val sym = tp.symbol
         forbidden.contains(sym)
-      override def apply(tp: Type): Type =
-        tp match
-          case fntpe: MethodType if fntpe.isKillFun =>
-            val KillType(resType, killedRefs) = fntpe.resultType: @unchecked
-            val (alreadyKillsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
-            var needsSelfRef = false
+      override def apply(tp: Type): Type = tp match
+        case fntpe: MethodType if fntpe.isKillFun =>
+          val KillType(resType, killedRefs) = fntpe.resultType: @unchecked
+          val (alreadyKillsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
+          var needsSelfRef = false
 
-            val goodRefs =
-              cleanedRefs.flatMap(_.toCapabilities)
-              .filter { ref => ref match
-                case tp: TermRef if toAvoid(tp) =>
-                  needsSelfRef = true
-                  false
-                case _ => true
-              }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
+          val goodRefs =
+            cleanedRefs.flatMap(_.toCapabilities)
+            .filter { ref => ref match
+              case tp: TermRef if toAvoid(tp) =>
+                needsSelfRef = true
+                false
+              case _ => true
+            }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
 
-            val updatedRefs =
-              if alreadyKillsSelf || needsSelfRef then
-                makeFuncSelfRef :: goodRefs
-              else goodRefs
+          val updatedRefs =
+            if alreadyKillsSelf || needsSelfRef then
+              makeFuncSelfRef :: goodRefs
+            else goodRefs
 
-            fntpe.derivedLambdaType(
-              paramInfos = fntpe.paramInfos.mapConserve(apply),
-              resType = KillType(apply(resType), updatedRefs)
-            )
-          case tpe @ AppliedType(parent, targs) if defn.isFunctionNType(tpe) && targs.last.isKillType =>
-            // an AppliedType will be a function of (targs.init) => targs.last
-            val KillType(resType, killedRefs) = targs.last: @unchecked
-            val (alreadyKillsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
-            var needsSelfRef = false
-            val goodRefs =
-              cleanedRefs.flatMap(_.toCapabilities)
-              .filter { ref => ref match
-                case tp: TermRef if toAvoid(tp) =>
-                  needsSelfRef = true
-                  false
-                case _ => true
-              }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
+          fntpe.derivedLambdaType(
+            paramInfos = fntpe.paramInfos.mapConserve(apply),
+            resType = KillType(apply(resType), updatedRefs)
+          )
+        case tpe @ AppliedType(parent, targs) if defn.isFunctionNType(tpe) && targs.last.isKillType =>
+          // an AppliedType will be a function of (targs.init) => targs.last
+          val KillType(resType, killedRefs) = targs.last: @unchecked
+          val (alreadyKillsSelf, cleanedRefs) = cleanSelfRef(killedRefs)
+          var needsSelfRef = false
+          val goodRefs =
+            cleanedRefs.flatMap(_.toCapabilities)
+            .filter { ref => ref match
+              case tp: TermRef if toAvoid(tp) =>
+                needsSelfRef = true
+                false
+              case _ => true
+            }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
 
-            val updatedRefs =
-              if alreadyKillsSelf || needsSelfRef then
-                makeFuncSelfRef :: goodRefs
-              else goodRefs
+          val updatedRefs =
+            if alreadyKillsSelf || needsSelfRef then
+              makeFuncSelfRef :: goodRefs
+            else goodRefs
 
-            tpe.derivedAppliedType(
-              mapOver(parent),
-              (targs.init.mapConserve(mapOver)) :+ KillType(mapOver(resType), updatedRefs)
-            )
-          case tp: TypeVar if mapCtx.typerState.constraint.contains(tp) => // copied from avoid
-            val lo = TypeComparer.instanceType(
-              tp.origin,
-              fromBelow = variance > 0 || variance == 0 && tp.hasLowerBound,
-              tp.widenPolicy)(using mapCtx)
-            val lo1 = apply(lo)
-            if (lo1 ne lo) lo1 else tp
-          case _ => super.apply(tp)
+          tpe.derivedAppliedType(
+            mapOver(parent),
+            (targs.init.mapConserve(mapOver)) :+ KillType(mapOver(resType), updatedRefs)
+          )
+
+        case CapturingType(parent, refs) =>
+          atCC(mapCapturingType(tp, parent, refs, variance))
+
+        case tp: TypeVar if mapCtx.typerState.constraint.contains(tp) => // copied from avoid
+          val lo = TypeComparer.instanceType(
+            tp.origin,
+            fromBelow = variance > 0 || variance == 0 && tp.hasLowerBound,
+            tp.widenPolicy)(using mapCtx)
+          val lo1 = apply(lo)
+          if (lo1 ne lo) lo1 else tp
+
+        case _ => super.apply(tp)
+      end apply
+    end escapeMap
     escapeMap(tp)
   end avoidKill
 

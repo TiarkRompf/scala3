@@ -21,3 +21,19 @@ object KillPos2:
       foo
     }
     j1
+
+  def subFree() =
+    val x: myCap^ = new myCap
+    val y = x
+    def g(func: () => Unit @kill(x)) = ???
+    val func2: () => Unit @kill(y) = ???
+    g(func2)
+
+  def etaExpand() =
+    val l: myCap^ = new myCap
+
+    def f1(func: () => Unit @kill(FUN)): Unit @kill(func) =
+      ()
+
+    def f2() = kmyCap(l)
+    f1(f2)
