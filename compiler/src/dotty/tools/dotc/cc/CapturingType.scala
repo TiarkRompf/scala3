@@ -5,6 +5,7 @@ package cc
 import core.*
 import Types.*, Symbols.*, Contexts.*
 import Decorators.i
+import eff.CheckEffects.{isEffCheckingOrSetup, isEffOrCC}
 
 /** A (possibly boxed) capturing type. This is internally represented as an annotated type with a @retains
  *  or @retainsByName annotation, but the extractor will succeed only at phase CheckCaptures.
@@ -54,9 +55,9 @@ object CapturingType:
   /** Decompose `tp` as a capturing type without taking IgnoreCaptures into account */
   def decomposeCapturingType(tp: Type)(using Context): Option[(Type, CaptureSet)] = tp match
     case AnnotatedType(parent, ann: CaptureAnnotation)
-    if isCaptureCheckingOrSetup =>
+    if isEffOrCC =>
       Some((parent, ann.refs))
-    case AnnotatedType(parent, ann) if ann.symbol.isRetains && isCaptureChecking =>
+    case AnnotatedType(parent, ann) if ann.symbol.isRetains && (isEffCheckingOrSetup || isCaptureChecking) =>
       // There are some circumstances where we cannot map annotated types
       // with retains annotations to capturing types, so this second recognizer
       // path still has to exist. One example is when checking capture sets

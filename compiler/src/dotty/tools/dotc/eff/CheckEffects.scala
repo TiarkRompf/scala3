@@ -43,6 +43,10 @@ object CheckEffects:
     val ctxId = ctx.phaseId
     ctxId == effId || ctxId == effId - 1
 
+  // true if phase is effect checking, effect setup, capture checking, or capture setup
+  def isEffOrCC(using Context): Boolean =
+    isEffCheckingOrSetup || isCaptureCheckingOrSetup
+
   def onlyEffCheckKill(using Context): Boolean = true // make this dependent on some compiler flag or smth?
 
   def atCC[T](op: Context ?=> T)(using Context): T =
@@ -117,11 +121,8 @@ object CheckEffects:
           // untpd.Ident(new Name(cr.toString)).withType(cr)
           EmptyTree
 
-    def crefSubsumes(y: Capability)(using Context): Boolean =
-      atCC(cref.subsumes(y))
-
     /**
-     * Removes all derived capabilities
+     * Removes all derived capability annotations.
      */
     def stripAllDC(using Context): Capability =
         cref.stripReach.stripMaybe.stripReadOnly
@@ -254,8 +255,8 @@ class CheckEffects extends Recheck:
 
       // hack for tuples is to only get the captureVars if it is a Method
       // because tuple deconstruction results in sym.captureVars including things we don't want.
-      val used = if sym.is(Method) then tree.markedFree ++ sym.captureVars
-        else tree.markedFree
+      val used = if sym.is(Method) then tree.markedFree ++ sym.captureVars ++ CaptureSet(captures(tree))
+        else tree.markedFree ++ CaptureSet(captures(tree))
       if !used.elems.isEmpty then
         val usedFootprint = used.elems.footprint
         for ref <- usedFootprint do
@@ -264,6 +265,19 @@ class CheckEffects extends Recheck:
             report.error(i"Use of ${tree} is forbidden.\nIt captures ${ref} which is killed.", tree.srcPos)
       super.recheckIdent(tree, pt)
     end recheckIdent
+
+    override def recheckSelect(tree: Select, pt: Type)(using Context): Type =
+      // tree.tpe match
+      //   case t @ TermRef(inner @ TermRef(_, _), _) =>
+      //     println(t.show)
+      //     println(t.widen)
+      //     println(killed)
+      //   case _ =>
+
+      recheckSelection(tree,
+          recheck(tree.qualifier, selectionProto(tree, pt)).widenIfUnstable,
+          tree.name, pt)
+    end recheckSelect
 
     /**
      * Problem: Match expressions get lowered into Labeled trees (c.f. patternMatcher phase) of form similar to:
@@ -596,7 +610,9 @@ class CheckEffects extends Recheck:
       recheckStats(stats)
       val exprType = recheck(expr)
       // println(exprType.show)
+      // println("========")
       val avoided = avoidKill(exprType, localSyms(stats).filterConserve(_.isTerm))
+      // println("========")
       // println(avoided.show)
       // println("----------------------")
       avoided
@@ -631,7 +647,15 @@ class CheckEffects extends Recheck:
         newTpe
     end recheckClosureBlock
 
-    // TODO - lub of two kill functions
+    /**
+     * TODO: do lub for two kill functions
+     *
+     * lub is done by via an OrType.
+     * For CT, they have one special case in TypeComparer.distributeOr which essentially
+     * just combines the top level refs and then recursively lubs the parents.
+     * This works for CT because its always at the top level wrapping any
+     * function.
+     */
     override def recheckIf(tree: If, pt: Type)(using Context): Type =
       recheck(tree.cond, defn.BooleanType)
 
@@ -687,12 +711,12 @@ class CheckEffects extends Recheck:
           val bound = localSyms(stats)
           if !(loopKilled.map(_.asInstanceOf[ObjectCapability].termSymbol).subtractAll(bound).isEmpty) then
             report.error("Killing a free variable is prohibited in loop body!", body.srcPos)
-        case _ => // should only be loop with one expression - in which case it has no bound variables and so killing is not okay.
+        case _ => // should only be loop with one expression - in which case it has no local variables and so killing is not okay.
           if !(loopKilled.isEmpty) then
             report.error("Killing a free variable is prohibited in loop body!", body.srcPos)
           // println(s"$body <- WHILE LOOP BODY")
 
-      killed.addAll(loopKilled)
+      killed.addAll(loopKilled) // unnecessary
       defn.UnitType
     end recheckWhileDo
 
@@ -741,7 +765,7 @@ class CheckEffects extends Recheck:
       val tpToCs: util.EqHashMap[Type, CaptureSet] = util.EqHashMap[Type, CaptureSet]()
       val mapCaptureSets = new TypeTraverser:
         def traverse(tp: Type): Unit = tp match
-          case tp @ RetainingType(parent, _) =>
+          case tp @ CapturingType(parent, _) =>
             if tpToCs.lookup(parent) == null then tpToCs(parent) = atCC(tp.captureSet)
             traverseChildren(tp)
           case _ => traverseChildren(tp)

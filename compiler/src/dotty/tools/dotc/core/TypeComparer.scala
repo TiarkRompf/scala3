@@ -359,7 +359,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
       case tp2: LazyRef =>
         isBottom(tp1)
         || !tp2.evaluating && recur(tp1, tp2.ref)
-      case CapturingType(_, _) =>
+      case CapturingType(_, _) if !isEffCheckingOrSetup =>
         secondTry
       case tp2: AnnotatedType if !tp2.isRefining =>
         recur(tp1, tp2.parent)
@@ -534,7 +534,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
 
         res
 
-      case tp1 @ CapturingType(parent1, refs1) =>
+      case tp1 @ CapturingType(parent1, refs1) if !isEffCheckingOrSetup =>
         def compareCapturing =
           if tp2.isAny then true
           else if subCaptures(refs1, tp2.captureSet).isOK && sameBoxed(tp1, tp2, refs1)

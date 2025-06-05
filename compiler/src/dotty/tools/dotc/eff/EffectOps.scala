@@ -128,7 +128,7 @@ object KillOps:
             cleanedRefs.flatMap(_.toCapabilities)
             .filter { ref => ref match
               case tp: TermRef if toAvoid(tp) =>
-                needsSelfRef = true
+                needsSelfRef = variance > 0
                 false
               case _ => true
             }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
@@ -139,8 +139,11 @@ object KillOps:
             else goodRefs
 
           fntpe.derivedLambdaType(
-            paramInfos = fntpe.paramInfos.mapConserve(apply),
-            resType = KillType(apply(resType), updatedRefs)
+            paramInfos = atVariance(-variance)(fntpe.paramInfos.mapConserve(apply)),
+            resType =
+              if updatedRefs.isEmpty then apply(resType)
+              else
+                KillType(apply(resType), updatedRefs)
           )
         case tpe @ AppliedType(parent, targs) if defn.isFunctionNType(tpe) && targs.last.isKillType =>
           // an AppliedType will be a function of (targs.init) => targs.last
@@ -151,7 +154,7 @@ object KillOps:
             cleanedRefs.flatMap(_.toCapabilities)
             .filter { ref => ref match
               case tp: TermRef if toAvoid(tp) =>
-                needsSelfRef = true
+                needsSelfRef = variance > 0
                 false
               case _ => true
             }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
@@ -162,10 +165,14 @@ object KillOps:
             else goodRefs
 
           tpe.derivedAppliedType(
-            mapOver(parent),
-            (targs.init.mapConserve(mapOver)) :+ KillType(mapOver(resType), updatedRefs)
+            apply(parent),
+            (atVariance(-variance)(targs.init.mapConserve(apply))) :+
+            {
+              if updatedRefs.isEmpty then apply(resType)
+              else
+                KillType(apply(resType), updatedRefs)
+            }
           )
-
         case CapturingType(parent, refs) =>
           atCC(mapCapturingType(tp, parent, refs, variance))
 

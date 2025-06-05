@@ -77,7 +77,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
              * We ignore the parent of refined functions because weird things happen. In particular, this
              * causes the body parameter in withFile in the file example to break by saying that
              * the capture set of c: f.isClosed^ is empty, since it gives it underlying type of Nothing.
-             * I don't know why this happens but it should be okay to ignore the parent since
+             * I don't know why this happens but it should be okay to ignore the parent for now since
              * we really only care about the method type anyways.
              */
             traverseChildren(mt)
