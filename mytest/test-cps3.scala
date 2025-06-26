@@ -5,8 +5,8 @@ object Main:
   def reify[A](x: CPS[A] @uncps): CPS[A] @uncps = x
 
   class CPS[A](val fun: [B] => (A=>B) => B) {
-    def flatMap[B](f: A => CPS[B]): CPS[B] = 
-      CPS([C] => k => fun(x => reify(f(x)).fun(k)))
+    def flatMap[B](f: A ?=> CPS[B]): CPS[B] = 
+      CPS([C] => k => fun(x => reify(f(using x)).fun(k)))
   }
 
   implicit def shiftUnit[T](x: T): CPS[T] = new CPS([B] => k => k(x))
@@ -24,4 +24,4 @@ object Main:
     println("result: " + res.fun(x => x))
 
 
-  def test3() = 1 + bing(10) + bing(20)
+  def test3() = 1 + bing(10) + bing(20) + summon[Int]

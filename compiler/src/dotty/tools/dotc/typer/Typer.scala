@@ -2946,7 +2946,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     tryCatchCPS1(f)((nme, pre) => g(last => 
       untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
         List(untpd.Function(
-          List(untpd.ValDef(nme,untpd.TypeTree(),untpd.EmptyTree).withFlags(Param)),
+          List(untpd.ValDef(nme,untpd.TypeTree(),untpd.EmptyTree).withFlags(Param | Given)),
             last)))))
 
   def pushCPS(tree: Tree)(using Context): Tree = {
