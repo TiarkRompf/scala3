@@ -636,8 +636,12 @@ object CaptureSet:
           capt.println(i"LEVEL ERROR $elem cannot be included in $this of $owner")
           false
         }
+        || {
+          this.elems.isEmpty
+        }
       case elem @ ResultCap(binder) =>
-        rootLimit == null && (this.isInstanceOf[BiMapped] || isPartOf(binder.resType))
+        (rootLimit == null && (this.isInstanceOf[BiMapped] || isPartOf(binder.resType)) )
+        || (this.elems.isEmpty)
       case GlobalCap =>
         rootLimit == null
       case elem: TermRef if level.isDefined =>

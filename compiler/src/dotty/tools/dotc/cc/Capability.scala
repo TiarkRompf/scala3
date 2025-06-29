@@ -178,6 +178,8 @@ object Capabilities:
    */
   case class ResultCap(binder: MethodicType) extends RootCapability:
 
+    override def toString = s"ResultCap($myOrigin)"
+
     private var myOrigin: RootCapability = GlobalCap
     private var variants: SimpleIdentitySet[ResultCap] = SimpleIdentitySet.empty
 
@@ -544,9 +546,10 @@ object Capabilities:
           val result = y match
             case y: ResultCap => vs.unify(x, y)
             case _ => y.derivesFromSharedCapability
-          if !result then
-            ccState.addNote(CaptureSet.ExistentialSubsumesFailure(x, y))
-          result
+          // if !result then
+          //   ccState.addNote(CaptureSet.ExistentialSubsumesFailure(x, y))
+          // result
+          result || canAddHidden
         case GlobalCap =>
           y match
             case GlobalCap => true
