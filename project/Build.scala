@@ -298,9 +298,7 @@ object Build {
       "-deprecation",
       "-unchecked",
       //"-Wconf:cat=deprecation&msg=Unsafe:s",    // example usage
-      "-Werror",
-      //"-Wunused:all",
-      //"-rewrite", // requires -Werror:false since no rewrites are applied with errors
+      //"-Xfatal-warnings",                         // -Werror in modern usage
       "-encoding", "UTF8",
       "-language:implicitConversions",
     ),
@@ -1237,7 +1235,7 @@ object Build {
     dependsOn(dottyCompiler(Bootstrapped) % "provided; compile->runtime; test->test").
     settings(scala2LibraryBootstrappedSettings).
     settings(moduleName := "scala2-library-cc")
-  
+
   lazy val scala2LibraryBootstrappedSettings = Seq(
       javaOptions := (`scala3-compiler-bootstrapped` / javaOptions).value,
       Compile / scalacOptions ++= {

@@ -1493,11 +1493,42 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         }
     }
 
-  def typedBlockStats(stats: List[untpd.Tree])(using Context): (List[tpd.Tree], Context) =
+  // XXX Purdue (attempt 0)
+  def expandStats(stats: List[untpd.Tree])(using Context): List[untpd.Tree] =
+    stats match
+      case (stat @ Apply(Ident(nme), args)) :: rest if nme.toString == "open" =>
+        val tree = stat
+        println("FOUND OPEN "+stat.show)
+
+        val mdef = cpy.ValDef(tree)(NameKinds.UniqueName.fresh(termName("open_cap")), untpd.TypeTree(), // defn.UnitType
+          cpy.Apply(tree)(
+            cpy.Ident(tree)(nme),
+              args
+          ).withSpan(tree.span),
+        ).withSpan(tree.span).withFlags(Implicit)
+
+        mdef :: expandStats(rest)
+
+      case stat :: rest => stat :: expandStats(rest)
+      case Nil => Nil
+
+
+  def typedBlockStats(stats0: List[untpd.Tree])(using Context): (List[tpd.Tree], Context) =
+    val stats = expandStats(stats0)
     index(stats)
     typedStats(stats, ctx.owner)
 
+
+  def typedBlockStats1(tree: untpd.Block, stats: List[untpd.Tree], expr: untpd.Tree, pt: Type)(using Context): Tree =
+    index(stats)
+    typedStats1(tree, stats, expr, pt, ctx.owner)
+
+
   def typedBlock(tree: untpd.Block, pt: Type)(using Context): Tree = {
+    if !ctx.mode.is(Mode.Pattern) then
+      return typedBlockStats1(tree, tree.stats, tree.expr, pt)
+
+
     val (stats1, exprCtx) = withoutMode(Mode.Pattern) {
       typedBlockStats(tree.stats)
     }
@@ -2925,6 +2956,96 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     sym.owner.info.decls.openForMutations.unlink(sym)
     EmptyTree
 
+
+  // XXX Purdue
+  class CPSException extends Throwable
+
+
+  // First attempt
+  var checkCps = true
+  var stmList = List[untpd.Tree]()
+  var cpsCounter = 0
+
+  def cpsLoop[T](f: () => T): T = {
+    val saveStmList = stmList
+    val saveCpsCounter = cpsCounter
+    try {
+      // stmList = Nil
+
+      var n = 10
+      while (n > 0) {
+        n -= 1
+        try {
+          cpsCounter = saveStmList.length
+          return f()
+        } catch {
+          case e: CPSException =>
+            println("CPS Exception caught -- retry!")
+        }
+      }
+      throw new UnsupportedOperationException
+    } finally {
+      stmList = saveStmList
+      cpsCounter = saveCpsCounter
+    }
+  }
+
+  def cpsLoop1[T](tree: untpd.Tree)(f: untpd.Tree => T)(using Context): T = {
+    return f(tree)
+    cpsLoop { () =>
+      println("attempt "+stmList.length)
+
+      stmList.foreach(x => println("  "+x))
+
+      if (stmList.length > 0)
+        f(untpd.Block(stmList, tree))
+      else
+        f(tree)
+    }
+  }
+
+
+  // Second attempt, using typerState
+
+  def tryCatchCPS1[T](f: => T)(g: (TermName, untpd.Tree) => T)(using Context): T = {
+    val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
+    val saveCpsCounter = cpsCounter
+    try f catch {
+      case e: CPSException =>
+        val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
+        println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
+        ctx.typerState.flowState = FlowState(stmList, saveCpsCounter)
+        g(termName("cps"+(stmList.length-1)), stmList.last)
+    }
+  }
+
+  def tryCatchCPS[T](f: => T)(g: (untpd.Tree => untpd.Tree) => T)(using Context): T =
+    tryCatchCPS1(f)((nme, pre) => g(last =>
+      untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
+        List(untpd.Function(
+          List(untpd.ValDef(nme,untpd.TypeTree(),untpd.EmptyTree).withFlags(Param | Given)),
+            last)))))
+
+  def pushCPS(tree: Tree)(using Context): Tree = {
+    val flag = tree.hasAttachment(InsertedApply)
+    if (!ctx.isTyper || flag) return tree
+    val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = (ctx.typerState.flowState : @unchecked)
+    if (cpsCounter >= stmList.length) {
+      println("found new cps expression "+cpsCounter+" "+tree.show)
+      val t = tree.withAttachment(InsertedApply, ())
+      ctx.typerState.flowState = FlowState(stmList :+ t, cpsCounter)
+      throw new CPSException
+    } else {
+      println("found old cps expression "+cpsCounter+" "+tree.show)
+      ctx.typerState.flowState = FlowState(stmList, cpsCounter + 1)
+      return typed(untpd.Ident(termName("cps"+(cpsCounter))).withSpan(tree.span))
+    }
+  }
+
+
+
+
+
   def typedDefDef(ddef: untpd.DefDef, sym: Symbol)(using Context): Tree = if !sym.info.exists then retractDefDef(sym) else ctx.profiler.onTypedDef(sym) {
 
     // TODO: - Remove this when `scala.language.experimental.erasedDefinitions` is no longer experimental.
@@ -2969,10 +3090,13 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
     if sym.isInlineMethod then rhsCtx.addMode(Mode.InlineableBody)
     if sym.is(ExtensionMethod) then rhsCtx.addMode(Mode.InExtensionMethod)
+
+    // XXX Purdue: possible hook for typing method body
+    // (subject to !sym.isConstructor)
     val rhs1 = excludeDeferredGiven(ddef.rhs, sym): rhs =>
       PrepareInlineable.dropInlineIfError(sym,
         if sym.isScala2Macro then typedScala2MacroBody(rhs)(using rhsCtx)
-        else typedExpr(rhs, tpt1.tpe.widenExpr)(using rhsCtx))
+        else typedTailExpr(rhs, tpt1.tpe.widenExpr)(using rhsCtx))
 
     if sym.isInlineMethod then
       if StagingLevel.level > 0 then
@@ -3785,12 +3909,28 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         typed(tree, pt, locked)(using ctx.withSource(tree.source))
       else if ctx.run.nn.isCancelled then
         tree.withType(WildcardType)
-      else adapt(typedUnadapted(tree, pt, locked), pt, locked)
+      else adapt2NonTail(tree, adapt(typedUnadapted(tree, pt, locked), pt, locked), pt, locked)
     }
   }
 
+  def typedTail(tree: untpd.Tree, pt: Type, locked: TypeVars)(using Context): Tree =
+    trace(i"typing $tree, pt = $pt", typr, show = true) {
+      record(s"typed $getClass")
+      record("typed total")
+      if ctx.phase.isTyper then
+        assertPositioned(tree)
+      if tree.source != ctx.source && tree.source.exists then
+        typed(tree, pt, locked)(using ctx.withSource(tree.source))
+      else if ctx.run.nn.isCancelled then
+        tree.withType(WildcardType)
+      else adapt2Tail(tree, adapt(typedUnadapted(tree, pt, locked), pt, locked), pt, locked)
+    }
+
   def typed(tree: untpd.Tree, pt: Type = WildcardType)(using Context): Tree =
     typed(tree, pt, ctx.typerState.ownedVars)
+
+  def typedTail(tree: untpd.Tree, pt: Type = WildcardType)(using Context): Tree =
+    typedTail(tree, pt, ctx.typerState.ownedVars)
 
   def typedTrees(trees: List[untpd.Tree])(using Context): List[Tree] =
     trees mapconserve (typed(_))
@@ -3800,6 +3940,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     var enumContexts: SimpleIdentityMap[Symbol, Context] = SimpleIdentityMap.empty
     val initialNotNullInfos = ctx.notNullInfos
       // A map from `enum` symbols to the contexts enclosing their definitions
+
     @tailrec def traverse(stats: List[untpd.Tree])(using Context): (List[Tree], Context) = stats match {
       case (imp: untpd.Import) :: rest =>
         val imp1 = typed(imp)
@@ -3864,6 +4005,114 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     (stats1, finalCtx)
   }
 
+  def typedStats1(tree: untpd.Tree, stats: List[untpd.Tree], expr: untpd.Tree, pt: Type, exprOwner: Symbol)(using Context): Tree = {
+    val buf = new mutable.ListBuffer[Tree]
+    var enumContexts: SimpleIdentityMap[Symbol, Context] = SimpleIdentityMap.empty
+    val initialNotNullInfos = ctx.notNullInfos
+      // A map from `enum` symbols to the contexts enclosing their definitions
+
+    val origCtx = ctx
+
+    def traverse(stats: List[untpd.Tree], expr: untpd.Tree)(using Context): Tree = stats match {
+      case (imp: untpd.Import) :: rest =>
+        val imp1 = typed(imp)
+        buf += imp1
+        traverse(rest, expr)(using ctx.importContext(imp, imp1.symbol))
+      case (mdef: untpd.DefTree) :: rest =>
+        mdef.removeAttachment(ExpandedTree) match {
+          case Some(xtree) =>
+            traverse(xtree :: rest, expr)
+          case none =>
+            tryCatchCPS {
+              val newCtx = if (ctx.owner.isTerm && adaptCreationContext(mdef)) ctx
+                else ctx.withNotNullInfos(initialNotNullInfos)
+              typed(mdef)(using newCtx) match {
+                case mdef1: DefDef
+                if mdef1.symbol.is(Inline, butNot = Deferred) && !Inlines.bodyToInline(mdef1.symbol).isEmpty =>
+                  buf ++= inlineExpansion(mdef1)
+                    // replace body with expansion, because it will be used as inlined body
+                    // from separately compiled files - the original BodyAnnotation is not kept.
+                  traverse(rest, expr)
+                case mdef1: TypeDef if mdef1.symbol.is(Enum, butNot = Case) =>
+                  enumContexts = enumContexts.updated(mdef1.symbol, ctx)
+                  buf += mdef1
+                  traverse(rest, expr)
+                case EmptyTree =>
+                  // clashing synthetic case methods are converted to empty trees, drop them here
+                  traverse(rest, expr)
+                case mdef1 =>
+                  buf += mdef1
+                  traverse(rest, expr)
+              }
+            } { k =>
+                rest.foreach(x => x.removeAttachment(SymOfTree))
+                val last = untpd.Block(mdef::rest, expr)
+                traverse(Nil, k(last)) //(using stat1.nullableContext)
+            }
+        }
+      case Thicket(stats) :: rest =>
+        traverse(stats ::: rest, expr)
+      case (stat: untpd.Export) :: rest =>
+        buf +=  typed(stat)
+        buf ++= stat.attachmentOrElse(ExportForwarders, Nil)
+          // no attachment can happen in case of cyclic references
+        traverse(rest, expr)
+      case (stat: untpd.ExtMethods) :: rest =>
+        val xtree = stat.removeAttachment(ExpandedTree).get
+        traverse(xtree :: rest, expr)
+      case stat :: rest =>
+        tryCatchCPS {
+          val stat1 = typed(stat)(using ctx.exprContext(stat, exprOwner))
+          if !Linter.warnOnInterestingResultInStatement(stat1) then checkStatementPurity(stat1)(stat, exprOwner)
+          buf += stat1
+          traverse(rest, expr)(using stat1.nullableContext)
+        } { k =>
+          rest.foreach(x => x.removeAttachment(SymOfTree))
+          val last = untpd.Block(stat::rest, expr)
+          traverse(Nil, k(last)) //(using stat1.nullableContext)
+        }
+      case nil =>
+        val (stats0, finalCtx) = (buf.toList, ctx)
+        val stats1 = stats0.mapConserve(finalize)
+        if ctx.owner == exprOwner then checkNoTargetNameConflict(stats1)
+        val (_, exprCtx) = (stats1, finalCtx)
+
+        var expr1 = typedTailExpr(expr, pt.dropIfProto)(using exprCtx)
+
+        inContext(origCtx) {
+
+        // If unsafe nulls is enabled inside a block but not enabled outside
+        // and the type does not conform the expected type without unsafe nulls,
+        // we will cast the last expression to the expected type.
+        // See: tests/explicit-nulls/pos/unsafe-block.scala
+        if ctx.mode.is(Mode.SafeNulls)
+          && !exprCtx.mode.is(Mode.SafeNulls)
+          && pt.isValueType
+          && !inContext(exprCtx.addMode(Mode.SafeNulls))(expr1.tpe <:< pt) then
+          expr1 = expr1.cast(pt)
+
+        ensureNoLocalRefs(
+          cpy.Block(tree)(stats1, expr1)
+            .withType(expr1.tpe)
+            .withNotNullInfo(stats1.foldRight(expr1.notNullInfo)(_.notNullInfo.seq(_))),
+          pt, localSyms(stats1))
+        }
+    }
+    def finalize(stat: Tree)(using Context): Tree = stat match {
+      case stat: TypeDef if stat.symbol.is(Module) =>
+        val enumContext = enumContexts(stat.symbol.linkedClass)
+        if enumContext != null then
+          checkEnumCaseRefsLegal(stat, enumContext)
+        stat.removeAttachment(AttachedDeriver) match {
+          case Some(deriver) => deriver.finalize(stat)
+          case None => stat
+        }
+      case _ =>
+        stat
+    }
+    traverse(stats, expr)
+  }
+
   /** Tries to adapt NotNullInfos from creation context to the DefTree,
    *  returns whether the adaption took place. An adaption only takes place if the
    *  DefTree has a symbol and it has not been completed (is not forward referenced).
@@ -3903,7 +4152,16 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
   def typedExpr(tree: untpd.Tree, pt: Type = WildcardType)(using Context): Tree =
     withoutMode(Mode.PatternOrTypeBits)(typed(tree, pt))
 
-  def typedType(tree: untpd.Tree, pt: Type = WildcardType, mapPatternBounds: Boolean = false)(using Context): Tree = {
+  def typedTailExpr(tree: untpd.Tree, pt: Type = WildcardType)(using Context): Tree =
+    withoutMode(Mode.PatternOrTypeBits) {
+      tryCatchCPS {
+        typedTail(tree, pt)
+      } { k =>
+        typedTailExpr(k(tree), pt)
+      }
+    }
+
+  def typedType(tree: untpd.Tree, pt: Type = WildcardType, mapPatternBounds: Boolean = false)(using Context): Tree =
     val tree1 = withMode(Mode.Type) { typed(tree, pt) }
     if mapPatternBounds && ctx.mode.is(Mode.Pattern) && !ctx.isAfterTyper then
       tree1 match
@@ -3919,7 +4177,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         case tree1 =>
           tree1
     else tree1
-  }
 
   def typedPattern(tree: untpd.Tree, selType: Type = WildcardType)(using Context): Tree =
     withMode(Mode.Pattern)(typed(tree, selType))
@@ -4168,6 +4425,49 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         adapt1(tree, pt, locked)
       }
     catch case ex: TypeError => errorTree(tree, ex, tree.srcPos.focus)
+
+
+  // XXX Purdue
+  def adapt2NonTail(tree: untpd.Tree, tree2: Tree, pt: Type, locked: TypeVars)(using Context): Tree = {
+    // CPS transform any expression of type `CPS[A]` that occurs in
+    // a non-tail position, *unless* one of the following is true:
+    // - the expected type is `CPS[A]`
+    // - the type has an annotation `@uncps`
+    def isCpsType(tpe: Type) = tpe.typeSymbol.toString == "class CPS"
+    def isUnCpsType(tpe: Type): Boolean = tpe match {
+      case AnnotatedType(parent, annot) =>
+        annot.symbol.toString == "class uncps" || isUnCpsType(parent)
+      case _ => false
+    }
+    tree2 match {
+      // case Apply(b, List(arg)) if b.show == "Main.bing" =>
+      case Apply(b, args)
+        if isCpsType(tree2.tpe)
+        && !isUnCpsType(tree2.tpe)
+        && !isCpsType(pt) =>
+
+        pushCPS(tree2)
+
+      // XXX DEBUGGING
+      // case Apply(b, args)
+      //   if isCpsType(tree2.tpe) =>
+
+      //   println("DON'T PUSH "+tree2.show)
+      //   if (tree2.show.contains("=> Main.shiftUnit["))
+      //     throw new UnsupportedOperationException
+
+      //   tree2
+
+      case _ =>
+        tree2
+    }
+  }
+
+  // XXX Purdue
+  def adapt2Tail(tree: untpd.Tree, tree2: Tree, pt: Type, locked: TypeVars)(using Context): Tree = {
+    tree2
+  }
+
 
   final def adapt(tree: Tree, pt: Type)(using Context): Tree =
     adapt(tree, pt, ctx.typerState.ownedVars)
@@ -4553,6 +4853,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           && !ctx.isInlineContext
       then
         typr.println(i"insert apply on implicit $tree")
+        // XXX Purdue -- possible hook: inserted apply on implicit fun
         val sel = untpd.Select(untpd.TypedSplice(tree), nme.apply).withAttachment(InsertedApply, ())
         try typed(sel, pt, locked) finally sel.removeAttachment(InsertedApply)
       else if ctx.mode is Mode.Pattern then
