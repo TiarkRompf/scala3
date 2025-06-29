@@ -12,7 +12,7 @@ import transform.{MacroTransform, PreRecheck, Recheck}
 import Recheck.*
 import cc.*
 import CheckEffects.*
-import NamerOps.{methodType}
+import NamerOps.methodType
 
 trait FXSetupAPI:
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree
@@ -40,7 +40,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   2. TODO: checks that the kill set of a function is a subset of the function captures set + parameters capture set - this can probably
   be done by looking at the capturedVars of a DefDef
   */
-  class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
+  class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts:
     import checker.*
     import cc.*
     import KillOps.*
@@ -67,7 +67,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                   case _ => false
                 // we check deep capture set since
                 // for tuples, only the deep capture set has a capability.
-                // probably special case this for common data structures like tuples and lists.
+                // probably special case this for common data uctures like tuples and lists.
                 // instead of checking in general? who knows.
                 if !isPolyParam && atCC(ref.coreType.deepCaptureSet.elems.isEmpty) then
                   report.error(em"${ref} cannot be killed since its capture set is empty!", tree.srcPos)
@@ -88,77 +88,54 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
 
     override def transform(tree: Tree)(using Context): Tree =
       val transformedTree = tree match
-        case tree : TypeTree =>
-          if !tree.isInferred then
+        case tree: TypeTree =>
+          if tree.isInferred then
+            tree.withType(tree.tpe.dropAllKill)
+          else
             checkExplicitTT(tree)
-          tree
+            tree
+
         case tree @ DefDef(name, paramss, tpt, rhs) =>
-          // todo handle parameterless functions (ExprType)
           val sym = tree.symbol
           // after postTyper all tpts should be TypeTrees, so should be ok
           // I also want this to fail if its not the case
           val forcedRes = tpt.asInstanceOf[TypeTree]
-          if forcedRes.isInferred && !sym.isConstructor then
-            val droppedRes = forcedRes.tpe.dropAllKill
-            val newTree = super.transform(cpy.DefDef(tree)(name, paramss, tpt.withType(droppedRes),rhs))
-            sym.info match
-                // todo: maybe too powerful?
-                // maybe only MethodType and PolyType?
-                case fntpe @ FunctionOrMethod(params, resType) =>
-                  val newInfo = fntpe.derivedFunctionOrMethod(params, resType.dropAllKill)
-                  val updatedInfo = new LazyType:
-                    def complete(denot: SymDenotation)(using Context): Unit =
-                      assert(ctx.phase == thisPhase.next, i"$sym")
-                      denot.info = newInfo
-                      val newResType = recheckDef(newTree.asInstanceOf[DefDef], sym)
-                      // TODO - instead of making new methodType, try to do something like integrateRT?
-                      denot.info = methodType(sym.paramSymss, newResType, false)
-                  updateInfo(sym, updatedInfo)
+          val newTree  = super.transform(tree).asInstanceOf[DefDef]
+          if forcedRes.isInferred && !sym.isConstructor then sym.info match
+            // todo: maybe too powerful?
+            // maybe only MethodType and PolyType?
+            case fntpe @ FunctionOrMethod(params, resType) =>
+              val newInfo = fntpe.derivedFunctionOrMethod(params, resType.dropAllKill)
+              val updatedInfo = new LazyType:
+                def complete(denot: SymDenotation)(using Context): Unit =
+                  assert(ctx.phase == thisPhase.next, i"$sym")
+                  denot.info = newInfo
+                  val newResType = recheckDef(newTree, sym)
+                  // TODO - instead of making new methodType, try to do something like integrateRT?
+                  denot.info = methodType(sym.paramSymss, newResType, false)
+              updateInfo(sym, updatedInfo)
 
-                case exprType @ ExprType(resType) => // TODO write some tests for this
-                  val newInfo = exprType.derivedExprType(resType.dropAllKill)
-                  val updatedInfo = new LazyType:
-                    def complete(denot: SymDenotation)(using Context): Unit =
-                      assert(ctx.phase == thisPhase.next, i"$sym")
-                      denot.info = newInfo
-                      val newResType = recheckDef(newTree.asInstanceOf[DefDef], sym)
-                      denot.info = newInfo.derivedExprType(newResType)
-                  updateInfo(sym, newInfo)
-                case tp =>
-                  // println(s"${tp} <- ${sym.show}")
-            newTree
-          else
-            checkExplicitTT(forcedRes)
-            super.transform(tree)
-        case tree @ TypeApply(fn, args) =>
-          // top level @kill should only exist on
-          // function return type, so it should not
-          // be possible to use as type apply?
-          val droppedArgs = args.map: arg =>
-            arg match
-              case arg: TypeTree =>
-                arg.withType(transform(arg).tpe.dropTopLevelKill)
-              case _ => arg
-          super.transform(cpy.TypeApply(tree)(fn, droppedArgs))
+            case exprType @ ExprType(resType) => // TODO write some tests for this
+              val newInfo = exprType.derivedExprType(resType.dropAllKill)
+              val updatedInfo = new LazyType:
+                def complete(denot: SymDenotation)(using Context): Unit =
+                  assert(ctx.phase == thisPhase.next, i"$sym")
+                  denot.info = newInfo
+                  val newResType = recheckDef(newTree, sym)
+                  denot.info = newInfo.derivedExprType(newResType)
+              updateInfo(sym, newInfo)
+            case tp =>
+              // println(s"${tp} <- ${sym.show}")
+          end if
+          newTree
+
         case tree @ ValDef(name, tpt, rhs) =>
           val sym = tree.symbol
+          val newTree = super.transform(tree).asInstanceOf[ValDef]
           if sym.exists && !sym.is(Param) && !sym.is(Module) then
             val forcedRes = tpt.asInstanceOf[TypeTree]
             if forcedRes.isInferred then
-              // if (sym.info != forcedRes.tpe) then
-              //   println("DEBUGGING INFO: VALDEF SYM.INFO != TPT.TPE")
-              //   println(tree.show)
-              //   println(sym.info)
-              //   println(forcedRes.tpe)
-              //   println("==================================================")
-              val newTptTpe = forcedRes.tpe.dropAllKill
-              val newTree = cpy.ValDef(tree)(
-                name,
-                tpt.withType(newTptTpe),
-                transform(tree.rhs)
-              )
-
-              val newInfo = sym.info.dropAllKill // I think some cases exist where sym.info != forcedRes.tpe
+              val newInfo = sym.info.dropAllKill
               val updatedInfo = new LazyType:
                 def complete(denot: SymDenotation)(using Context): Unit =
                   assert(ctx.phase == thisPhase.next, i"$sym")
@@ -167,19 +144,19 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                   denot.info = newResType
 
               updateInfo(sym, updatedInfo)
-              newTree
-            else
-              checkExplicitTT(forcedRes)
-              super.transform(tree)
-          else
-            super.transform(tree)
+          end if
+          newTree
+
+        case tree @ Ident(_) =>
+          super.transform(tree.withType(tree.tpe.boxedToTermRef))
         case _ =>
           super.transform(tree)
+      end transformedTree
       transformedTree.setCCType(tree.ccType)
       transformedTree
     end transform
 
-  class FXSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts(cpy = cpyBetweenPhases):
+  class FXSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts:
     import checker.*
     import EffOps.*
     override def transform(tree: Tree)(using Context): Tree =
@@ -187,7 +164,6 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
 
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree =
     if onlyEffCheckKill then
-      // val newTree = addRecheckedTypes(tree)
       atPhase(thisPhase)(KillSetupTransformer(checker).transform(tree))
     else
       atPhase(thisPhase)(FXSetupTransformer(checker).transform(tree))
