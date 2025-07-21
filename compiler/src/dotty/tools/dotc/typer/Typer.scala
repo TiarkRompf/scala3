@@ -87,6 +87,9 @@ object Typer {
   /** Tree adaptation lost fidelity; this attachment preserves the original tree. */
   val AdaptedTree = new Property.StickyKey[tpd.Tree]
 
+  /** Tree has alread been ANF transformed **/
+  val ANFTransformed = new Property.Key[Unit]
+
   /** An attachment on a Select node with an `apply` field indicating that the `apply`
    *  was inserted by the Typer.
    */
@@ -2927,6 +2930,35 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       case _ =>
         typed(rhs)
 
+  /**
+   * SingletonTypeTree(Select(Ident(p1),a)) <- tpt should be
+   * TermRef(TermRef(NoPrefix,val p1),val a) <- type of tpt and sym.info
+   *
+   * Suppose we have
+   * val f = newFile()
+   *
+   * This must get transformed into
+   * val p = newFile()
+   * {
+   *  implicit val scap = p.b
+   *  val f: p.a.type = p.a
+   * }
+   *
+   * However, if we naively transform it, then there will be two problems
+   * 1. The tpt and the symbol information do not match up - e.g. the
+   *    code will become val f: Sigma { ... } = p.a // : File,
+   *    and the info of the symbol for f will still be Sigma { ... }
+   * 2. The val tpt must stay narrowed to p.a.type.
+   *
+   * The current fix for this issue is to
+   * - check if tpt is a Sigma { ... } type. It can first be
+   *   the original Apply node, in which case a CPSException should be thrown
+   *   and typing the ValDef will be interrupted, meaning that we don't care
+   *   about what happens aftewards
+   * - The second case is when it is val f: Sigma { ... } = p.a - thus, we can unilaterally
+   *   handle it by changing the tpt1 to the SingletonTypeTree of p.a and also changing the
+   *   sym.info.
+   */
   def typedValDef(vdef: untpd.ValDef, sym: Symbol)(using Context): Tree = ctx.profiler.onTypedDef(sym) {
     val ValDef(name, tpt, _) = vdef
     checkNonRootName(vdef.name, vdef.nameSpan)
@@ -2939,9 +2971,34 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     val rhs1 = vdef.rhs match
       case rhs @ Ident(nme.WILDCARD) =>
         rhs.withType(tpt1.tpe)
-      case rhs if isDependentPair(tpt1.tpe.widenExpr) =>
-        excludeDeferredGiven(rhs, sym):
-          typedExpr(_, tpt1.tpe.widenExpr)
+      case rhs if isSigma(tpt1.tpe.widenExpr) =>
+        val isInferred = tpt1 match
+          case tpt1: TypeTree => tpt1.isInferred
+          case _ => false
+
+        val rhsIsEmpty = rhs match
+          case e: EmptyTree[?] => true
+          case _ => false
+
+        val original = rhs.hasAttachment(ANFTransformed)
+
+        val shouldTransform =
+          sym.exists && !sym.isOneOf(Module | Param) &&
+          !vdef.isEmpty && !rhsIsEmpty && isInferred && !original
+
+        if !shouldTransform then
+          // prevents transformation because expected type (tpt1.tpe) is Sigma type
+         excludeDeferredGiven(rhs, sym):
+            typedExpr(_, tpt1.tpe.widenExpr)
+        else
+          val res = excludeDeferredGiven(rhs, sym)(typedExpr(_))
+          tpt2 = typedTail(SingletonTypeTree(res).withSpan(tpt1.span))
+          sym.info = tpt2.tpe
+          res match
+            case Select(Ident(_), _) =>
+            case other =>
+              report.error(i"Other rhs is being transformed: ${other}", res.srcPos)
+          res
       case rhs if isCpsType(tpt1.tpe.widenExpr) =>
         // cases - either typedExpr finds new CPS expr,
         // but then it will return to typing the entire statement, skipping the below.
@@ -3045,34 +3102,32 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
         println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
         ctx.typerState.flowState = FlowState(stmList, saveCpsCounter)
-        try g(termName("cps"+(stmList.length-1)), stmList.last)
+        try g(termName(s"sigma${stmList.length-1}"), stmList.last)
         finally {
           ctx.typerState.flowState = FlowState(saveStmList,  saveCpsCounter)
         }
     }
   }
 
-  var freshCounter: Int = 0
-
   def tryCatchCPS[T](f: => T)(g: (untpd.Tree => untpd.Tree) => T)(using Context): T =
     tryCatchCPS1(f)((nme, pre) => g(last =>
-      // freshCounter += 1
-      // val indirectNme = termName(nme.toString + freshCounter)
-      // untpd.Block(
-      //   List(
-      //     untpd.ValDef(indirectNme, untpd.TypeTree(),
-      //       untpd.Apply(untpd.Ident(termName("getRes")), pre)
-      //     ).withFlags(Lazy),
-      //     untpd.ValDef(nme, untpd.TypeTree(),
-      //       untpd.Ident(indirectNme)
-      //     ).withFlags(Lazy | Given)
-      //   ),
-      //   last
-      // )
-      untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
-        List(untpd.Function(
-          List(untpd.ValDef(nme, untpd.TypeTree(), untpd.EmptyTree).withFlags(Param | Given)),
-            last)))
+      val bNme: TermName = termName(s"${nme.toString}_CAP")
+       untpd.Block(
+        List(untpd.ValDef(nme, untpd.TypeTree(), pre).withFlags(Lazy)),
+        untpd.Block(
+          List(
+            untpd.ValDef(bNme, untpd.TypeTree(), untpd.Select(
+              untpd.Ident(nme).withSpan(pre.span), termName("b")
+            )).withFlags(Given | Lazy)
+          ),
+          last
+        )
+      )
+
+      // untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
+      //   List(untpd.Function(
+      //     List(untpd.ValDef(nme, untpd.TypeTree(), untpd.EmptyTree).withFlags(Param | Given)),
+      //       last)))
       ))
 
   /**
@@ -3080,7 +3135,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
    * @param initTree: untpd.Tree of tree before being typed.
    *
    * This is necessary because we do not want to propagate the
-   * InsertedApply attachment to the original tree, since
+   * ANFTransformed attachment to the original tree, since
    * otherwise the "old cps" expression would never be transformed in the
    * body of the flatMap.
    *
@@ -3115,28 +3170,50 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     // println(s"${initTree} <- INITTREE")
     // println(s"===============================")
 
-    val flag = tree.hasAttachment(InsertedApply) ||
-      initTree.hasAttachment(InsertedApply)
+    val flag = tree.hasAttachment(ANFTransformed) ||
+      initTree.hasAttachment(ANFTransformed)
     if (!ctx.isTyper || flag) return tree
 
     val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = (ctx.typerState.flowState : @unchecked)
     if (cpsCounter >= stmList.length) {
       println("found new cps expression "+cpsCounter+" "+tree.show)
-      val hygienicTree = untpd.TypedSplice(tree).withAttachment(InsertedApply, ())
+      val hygienicTree = untpd.TypedSplice(tree).withAttachment(ANFTransformed, ())
       // val t = if tree eq initTree then
-      //   freshApplyNode(tree).withAttachment(InsertedApply, ())
+      //   freshApplyNode(tree).withAttachment(ANFTransformed, ())
       // else
-      //   tree.withAttachment(InsertedApply, ())
+      //   tree.withAttachment(ANFTransformed, ())
       ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     } else {
-      println("found old cps expression "+cpsCounter+" "+tree.show + i" stmList: $stmList")
+      println("found old cps expression "+cpsCounter+" "+ tree.show + i" stmList: $stmList")
       ctx.typerState.flowState = FlowState(stmList, cpsCounter + 1)
       val id = untpd.Ident(termName("cps"+(cpsCounter))).withSpan(tree.span)
       return typed(id)
     }
   }
 
+  def getFlowState(using Context): (List[untpd.Tree], Int) =
+    val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = (ctx.typerState.flowState : @unchecked)
+    (stmList, cpsCounter)
+
+  def pushSigma(tree: tpd.Tree, initTree: untpd.Tree)(using Context): Tree =
+    val flag = tree.hasAttachment(ANFTransformed) ||
+      initTree.hasAttachment(ANFTransformed)
+    if (!ctx.isTyper || flag) return tree
+
+    val (stmList, cpsCounter) = getFlowState
+    if cpsCounter >= stmList.length then
+      println("found new sigma "+cpsCounter+" "+tree.show)
+      val hygienicTree = untpd.TypedSplice(tree).withAttachment(ANFTransformed, ())
+      ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
+      throw new CPSException
+    else
+      println("found old sigma "+cpsCounter+" "+tree.show + i" stmList: $stmList")
+      ctx.typerState.flowState = FlowState(stmList, cpsCounter + 1)
+      val id = typedTail(untpd.Ident(termName(s"sigma${cpsCounter}")).withSpan(tree.span))
+      val selA = untpd.Select(untpd.TypedSplice(id), termName("a"))
+      typedExpr(selA)
+  end pushSigma
 
 
   def typedDefDef(ddef: untpd.DefDef, sym: Symbol)(using Context): Tree = if !sym.info.exists then retractDefDef(sym) else ctx.profiler.onTypedDef(sym) {
@@ -3156,15 +3233,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       checkNoForwardDependencies(vparams)
     if (sym.isOneOf(GivenOrImplicit)) checkImplicitConversionDefOK(sym)
     val tpt1 = checkSimpleKinded(typedType(tpt))
-
-    // if (ddef.name.toString == "newFile") then
-    //   // println(ddef.rhs.asInstanceOf[Block].expr)
-    //   if !(tpt1.tpe.typeMembers.isEmpty) then
-    //     println(tpt1.tpe.typeSymbol)
-    //     val denot1 = tpt1.tpe.typeMembers.head
-    //     val denot2 = tpt1.tpe.typeMembers(1)
-    //     println(denot1.info)
-    //     println(denot2.info)
 
     val rhsCtx = ctx.fresh
     val tparamss = paramss1.collect {
@@ -4336,8 +4404,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
    */
   def typedTailExpr(tree: untpd.Tree, pt: Type = WildcardType)(using Context): Tree =
     withoutMode(Mode.PatternOrTypeBits) {
-      if (tree.show == "foo(202).toString()") then
-        println(tree.show)
       tryCatchCPS {
         typedTail(tree, pt)
       } { k =>
@@ -4630,7 +4696,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     // - the type has an annotation `@uncps`
 
     tree2 match {
-      // case Apply(b, List(arg)) if b.show == "Main.bing" =>
       case Apply(b, args)
         if isCpsType(tree2.tpe)
         && !isUnCpsType(tree2.tpe)
@@ -4638,14 +4703,18 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
         pushCPS(tree2, tree)
 
-      // XXX DEBUGGING
-      // case Apply(b, args)
-      //   if isCpsType(tree2.tpe) =>
+      case Apply(b, args) if isSigma(tree2.tpe) && !isSigma(pt) =>
+        pushSigma(tree2, tree)
 
-      //   println("DON'T PUSH "+tree2.show)
-      //   if (tree2.show.contains("=> Main.shiftUnit["))
-      //     throw new UnsupportedOperationException
-
+      // case Apply(b, args) =>
+      //   if !(tree.show.contains("new")) then
+      //     println(tree2.show)
+      //     println(tree2.tpe.show)
+      //     tree2.tpe match
+      //       case AppliedType(tycon @ TypeRef(_, _), _) =>
+      //         println(tycon.underlying.typeSymbol)
+      //       case _ =>
+      //     // println(tree2.tpe.asInstanceOf[AppliedType].tycon.asInstanceOf[TypeRef].underlying)
       //   tree2
 
       case _ =>
@@ -4657,7 +4726,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
   def adapt2Tail(tree: untpd.Tree, tree2: Tree, pt: Type, locked: TypeVars)(using Context): Tree = {
     tree2
   }
-
 
   final def adapt(tree: Tree, pt: Type)(using Context): Tree =
     adapt(tree, pt, ctx.typerState.ownedVars)

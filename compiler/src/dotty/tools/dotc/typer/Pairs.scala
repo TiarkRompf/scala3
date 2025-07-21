@@ -5,6 +5,7 @@ package typer
 import core.*
 import Symbols.*, Types.*, Contexts.*, Flags.*, Names.*, NameOps.*, NameKinds.*
 import StdNames.*, Denotations.*, Phases.*, SymDenotations.*
+import ast.*
 
 /**
  * Ordinary dependent pair stuff
@@ -34,6 +35,11 @@ object DependentPair:
  */
 var Sigma: ClassSymbol | Null = null
 
+lazy val nme_A = typeName("A")
+lazy val nme_B = typeName("B")
+lazy val nme_a = termName("a")
+lazy val nme_b = termName("b")
+
 def getSigma(using Context): ClassSymbol =
   Sigma match
     case null =>
@@ -43,6 +49,12 @@ def getSigma(using Context): ClassSymbol =
 
 def isSigma(tpe: Type)(using Context) =
   tpe.typeSymbol == getSigma
+  || {
+    tpe match
+      case AppliedType(tycon: TypeRef, _) => // hack for type Pair
+        tycon.underlying.typeSymbol == getSigma
+      case _ => false
+  }
 
 object SigmaPair:
   def unapply(tp: Type)(using Context): Option[Type] = tp match
