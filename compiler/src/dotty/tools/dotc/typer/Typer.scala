@@ -2988,7 +2988,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
         if !shouldTransform then
           // prevents transformation because expected type (tpt1.tpe) is Sigma type
-         excludeDeferredGiven(rhs, sym):
+          excludeDeferredGiven(rhs, sym):
             typedExpr(_, tpt1.tpe.widenExpr)
         else
           val res = excludeDeferredGiven(rhs, sym)(typedExpr(_))
@@ -3100,7 +3100,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     try f catch {
       case e: CPSException =>
         val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
-        println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
+        // println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
         ctx.typerState.flowState = FlowState(stmList, saveCpsCounter)
         try g(termName(s"sigma${stmList.length-1}"), stmList.last)
         finally {
@@ -3176,7 +3176,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
     val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = (ctx.typerState.flowState : @unchecked)
     if (cpsCounter >= stmList.length) {
-      println("found new cps expression "+cpsCounter+" "+tree.show)
+      // println("found new cps expression "+cpsCounter+" "+tree.show)
       val hygienicTree = untpd.TypedSplice(tree).withAttachment(ANFTransformed, ())
       // val t = if tree eq initTree then
       //   freshApplyNode(tree).withAttachment(ANFTransformed, ())
@@ -3185,7 +3185,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     } else {
-      println("found old cps expression "+cpsCounter+" "+ tree.show + i" stmList: $stmList")
+      // println("found old cps expression "+cpsCounter+" "+ tree.show + i" stmList: $stmList")
       ctx.typerState.flowState = FlowState(stmList, cpsCounter + 1)
       val id = untpd.Ident(termName("cps"+(cpsCounter))).withSpan(tree.span)
       return typed(id)
@@ -3203,12 +3203,12 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
     val (stmList, cpsCounter) = getFlowState
     if cpsCounter >= stmList.length then
-      println("found new sigma "+cpsCounter+" "+tree.show)
+      // println("found new sigma "+cpsCounter+" "+tree.show)
       val hygienicTree = untpd.TypedSplice(tree).withAttachment(ANFTransformed, ())
       ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     else
-      println("found old sigma "+cpsCounter+" "+tree.show + i" stmList: $stmList")
+      // println("found old sigma "+cpsCounter+" "+tree.show + i" stmList: $stmList")
       ctx.typerState.flowState = FlowState(stmList, cpsCounter + 1)
       val id = typedTail(untpd.Ident(termName(s"sigma${cpsCounter}")).withSpan(tree.span))
       val selA = untpd.Select(untpd.TypedSplice(id), termName("a"))
@@ -4094,9 +4094,9 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       else if ctx.run.nn.isCancelled then
         tree.withType(WildcardType)
       else
-        if pt.typeSymbol.toString == "trait Sigma"
+        if false && pt.typeSymbol.toString == "trait Sigma"
         &&
-        tree.isInstanceOf[untpd.New] && false
+        tree.isInstanceOf[untpd.New]
         // {
         //   tree match
         //     case b: Block =>
@@ -4413,7 +4413,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
   def typedType(tree: untpd.Tree, pt: Type = WildcardType, mapPatternBounds: Boolean = false)(using Context): Tree =
     val tree1 = withMode(Mode.Type) { typed(tree, pt) }
-    if mapPatternBounds && ctx.mode.is(Mode.Pattern) && !ctx.isAfterTyper then
+    val res = if mapPatternBounds && ctx.mode.is(Mode.Pattern) && !ctx.isAfterTyper then
       tree1 match
         case tree1: TypeBoundsTree =>
           // Associate a pattern-bound type symbol with the wildcard.
@@ -4427,6 +4427,12 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         case tree1 =>
           tree1
     else tree1
+    // If you want to make typedTree a capability
+    // if tree.hasAttachment(makeCapability) then
+    //   res.removeAttachment(makeCapability)
+    //   withMode(Mode.Type) { typed(untpd.makeRetaining(untpd.TypedSplice(res), Nil, tpnme.retainsCap), pt) }
+    // else res
+    res
 
   def typedPattern(tree: untpd.Tree, selType: Type = WildcardType)(using Context): Tree =
     withMode(Mode.Pattern)(typed(tree, selType))
@@ -4707,14 +4713,12 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         pushSigma(tree2, tree)
 
       // case Apply(b, args) =>
-      //   if !(tree.show.contains("new")) then
+      //   if (ctx.isTyper) && tree2.show.contains("open") then
       //     println(tree2.show)
-      //     println(tree2.tpe.show)
-      //     tree2.tpe match
-      //       case AppliedType(tycon @ TypeRef(_, _), _) =>
-      //         println(tycon.underlying.typeSymbol)
-      //       case _ =>
-      //     // println(tree2.tpe.asInstanceOf[AppliedType].tycon.asInstanceOf[TypeRef].underlying)
+      //     println(tree2.tpe.dealias)
+      //     println(tree2.tpe.typeSymbol)
+      //     println(isSigma(tree2.tpe))
+      //     println("===================")
       //   tree2
 
       case _ =>
@@ -5488,7 +5492,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
      */
     def adaptSigma(tree: Tree, pt: Type)(using Context): Tree =
       assert(isSigma(pt))
-      println("REACHES")
 
       extension (tp: Type)
         def stripAlias: Type =
@@ -5512,8 +5515,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         case pt => scd
 
       // println(fst)
-      // println(scd)
-      // println(pt)
 
       val scdArg = inferImplicitArg(scd, tree.span.endPos)
       scdArg.tpe match
@@ -5528,7 +5529,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       val body =
         untpd.TypeDef(typeName("A"), fstTree) ::
         untpd.TypeDef(typeName("B"), scdTree) ::
-        untpd.ValDef(termName("a"), SingletonTypeTree(tree), untpd.TypedSplice(tree)) ::
+        // need to fix this - maybe do not use singletonTypeTree
+        untpd.ValDef(termName("a"), untpd.TypeTree(), untpd.TypedSplice(tree)) ::
         untpd.ValDef(termName("b"), untpd.TypeTree(), untpd.TypedSplice(scdArg)) ::
         Nil
 

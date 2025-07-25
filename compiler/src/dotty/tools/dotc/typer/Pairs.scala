@@ -48,9 +48,9 @@ def getSigma(using Context): ClassSymbol =
     case sym => sym
 
 def isSigma(tpe: Type)(using Context) =
-  tpe.typeSymbol == getSigma
+  tpe.dealias.typeSymbol == getSigma
   || {
-    tpe match
+    tpe.dealias match
       case AppliedType(tycon: TypeRef, _) => // hack for type Pair
         tycon.underlying.typeSymbol == getSigma
       case _ => false

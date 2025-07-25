@@ -780,7 +780,10 @@ object Capabilities:
               case _ =>
             res
           else
-            if variance == 0 then
+            // special case for Sigma - set to covariant
+            if variance == 0 && typer.isSigma(tp) then
+              atVariance(1)(mapCapability(c, deep))
+            else if variance == 0 then
               fail(em"""$tp captures the root capability `cap` in invariant position.
                        |This capability cannot be converted to an existential in the result type of a function.""")
             // we accept variance < 0, and leave the cap as it is

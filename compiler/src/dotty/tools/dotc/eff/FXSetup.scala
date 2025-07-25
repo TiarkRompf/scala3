@@ -83,7 +83,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
             traverseChildren(mt)
           case _ => traverseChildren(tp)
         end traverse
-      checkTraverser.traverse(tree.tpe)
+      // checkTraverser.traverse(tree.tpe)
     end checkExplicitTT
 
     override def transform(tree: Tree)(using Context): Tree =

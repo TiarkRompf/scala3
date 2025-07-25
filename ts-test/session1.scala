@@ -1,134 +1,123 @@
 // Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
-// First iteration that uses the channel itself as a capability.
+// Uses channel itself directly
 package typestate
 
 import language.experimental.captureChecking
 import caps.*, unsafe.*
 import scala.annotation, annotation.tailrec
+import scala.compiletime.ops.int.*
 
 class kill(xs: Any*) extends annotation.StaticAnnotation
+object FUN
 
-object CCHack:
-  def assumeFresh[E, P <: Protocol](x: Chan[E, P]): Chan[E, P]^ =
-    x.asInstanceOf[Chan[E, P]^]
+trait Session
+class Send[T, P <: Session] extends Session
+class Recv[T, P <: Session] extends Session
+class Select[L <: Session, R <: Session] extends Session
+class Branch[L <: Session, R <: Session] extends Session
+class Rec[P <: Session] extends Session
+class Var[N <: Int] extends Session
+class End extends Session
 
-trait Nat
-class Z extends Nat
-class S[A <: Nat] extends Nat
-
-trait Protocol
-class Send[T, P <: Protocol] extends Protocol
-class Recv[T, P <: Protocol] extends Protocol
-class Choose[L <: Protocol, R <: Protocol] extends Protocol
-class Offer[L <: Protocol, R <: Protocol] extends Protocol
-class Rec[P <: Protocol] extends Protocol
-class Var[N <: Nat] extends Protocol
-class Close extends Protocol
-
-type Dual[P <: Protocol] <: Protocol = P match
+type Dual[P <: Session] <: Session = P match
   case Send[t, p] => Recv[t, Dual[p]]
   case Recv[t, p] => Send[t, Dual[p]]
-  case Choose[l, r] => Offer[Dual[l], Dual[r]]
-  case Offer[l, r] => Choose[Dual[l], Dual[r]]
+  case Select[l, r] => Branch[Dual[l], Dual[r]]
+  case Branch[l, r] => Select[Dual[l], Dual[r]]
   case Rec[p] => Rec[Dual[p]]
   case Var[n] => Var[n]
-  case Close => Close
+  case End => End
 
-class Chan[E, S <: Protocol] // maybe also constrain E?
+class Chan[E <: Tuple, P <: Session]
+type EChan[P <: Session] = Chan[EmptyTuple, P]
+type EnvEnd[P <: Session] = P *: EmptyTuple
 
 object Chan:
-  def apply[P <: Protocol](): (Chan[Unit, P], Chan[Unit, Dual[P]]) =
-    (new Chan[Unit, P],
-     new Chan[Unit, Dual[P]])
+  def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^)=
+    (new Chan[EmptyTuple, P], new Chan[EmptyTuple, Dual[P]])
 
-  extension [E, P <: Protocol](chan: Chan[E, Rec[P]]^)
-   def rec_push(): (Chan[(P, E), P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[(P, E), P]]
+  extension [E <: Tuple, P <: Session](chan: Chan[E, Rec[P]]^)
+   def rec_push(): (Chan[P *: E, P]^) @kill(chan) =
+      chan.asInstanceOf[Chan[P *: E, P]]
 
-  extension [E, P <: Protocol](chan: Chan[(P, E), Var[Z]]^)
-    def rec_top(): (Chan[(P, E), P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[(P, E), P]]
+  extension [E <: Tuple, P <: Session](chan: Chan[P *: E, Var[0]]^)
+    def rec_top(): (Chan[P *: E, P]^) @kill(chan) =
+      chan.asInstanceOf[Chan[P *: E, P]]
 
-  extension [E, P <: Protocol, N <: Nat](chan: Chan[(P, E), Var[S[N]]])
-    def rec_pop(): Chan[E, Var[N]] =
+  extension [E <: Tuple, P <: Session, N <: Int](chan: Chan[P *: E, Var[S[N]]]^)
+    def rec_pop(): (Chan[E, Var[N]]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, Var[N]]]
 
-  extension [E, T, P <: Protocol](chan: Chan[E, Send[T, P]]^)
+  extension [E <: Tuple, P <: Session, T](chan: Chan[E, Send[T, P]]^)
     def send(x: T): (Chan[E, P]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, P]]
 
-  extension [E, T, P <: Protocol](chan: Chan[E, Recv[T, P]]^)
-    def recv(): (Chan[E, P], T) @kill(chan) =
-      chan.asInstanceOf[(Chan[E, P], T)]
+  extension [E <: Tuple, P <: Session, T](chan: Chan[E, Recv[T, P]]^)
+    def recv(): (Chan[E, P]^, T) @kill(chan) =
+      ???
 
-  extension [E, L <: Protocol, R <: Protocol](chan: (Chan[E, Choose[L, R]]^))
+  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Select[L, R]]^))
     def left(): (Chan[E, L]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, L]]
 
-  extension [E, L <: Protocol, R <: Protocol](chan: (Chan[E, Choose[L, R]]^))
+  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Select[L, R]]^))
     def right(): (Chan[E, R]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, R]]
 
-  extension [E, L <: Protocol, R <: Protocol](chan: Chan[E, Offer[L, R]]^)
-    def offer(): Either[Chan[E, L]^, Chan[E, R]^] @kill(chan) =
-      Left(chan.asInstanceOf[Chan[E, L]])
+  extension [E <: Tuple, L <: Session, R <: Session, T](chan: Chan[E, Branch[L, R]]^)
+    def branch(left: (c: Chan[E, L]^) => T @kill(c))
+              (right: (c: Chan[E, R]^) => T @kill(c)): T @kill(chan) =
+      ???
 
-  extension [E](chan: Chan[E, Close]^)
+  extension [E <: Tuple](chan: Chan[E, End]^)
     def close(): Unit @kill(chan) = ()
 
-type EchoSInner = Recv[String, Offer[Var[Z], Close]]
+type EchoSInner = Recv[String, Branch[Var[0], End]]
 type EchoServer = Rec[EchoSInner]
 type EchoCInner = Dual[EchoSInner]
 type EchoClient = Dual[EchoServer]
 
 object EchoServer:
-  import CCHack.*
-
-  def apply(c: Chan[Unit, EchoServer]^) =
+  def apply(c: EChan[EchoServer]^) =
     val c2 = c.rec_push()
 
-    @tailrec def recur(c: Chan[(EchoSInner, Unit), EchoSInner]^): Unit @kill(c) =
-      val recvTup = c.recv()
-      val c2 = assumeFresh(recvTup._1)
-      val str = recvTup._2
-
+    def recur(c: Chan[EchoSInner *: EmptyTuple, EchoSInner]^): Unit @kill(c) =
+      val (c2, str) = c.recv()
       println(str)
-      c2.offer() match
-        case Left(c) =>
-          recur(c.rec_top())
-        case Right(c) =>
-          c.close()
-    end recur
-    recur(c2)
-
-  end apply
-
-object EchoClient:
-  def readLine(): String = "something"
-
-  def apply(c: Chan[Unit, EchoClient]^) =
-    val c2 = c.rec_push()
-
-    @tailrec def recur(c: Chan[(EchoCInner, Unit), EchoCInner]^): Unit @kill(c) =
-      val input = readLine()
-      val c2 = c.send(input)
-      // c.send(input)
-      if (input == "exit") then
-        c2.right().close()
-      else
-        recur(c2.left().rec_top())
+      c2.branch { l =>
+        recur(l.rec_top())
+      } { r =>
+        r.close()
+      }
     end recur
     recur(c2)
   end apply
 
-object Main:
-  import CCHack.*
-  def echo_test() =
-    val channels = Chan[EchoServer]()
-    val server_chan = assumeFresh(channels._1)
-    val client_chan = assumeFresh(channels._2)
-    EchoServer(server_chan)
-    EchoClient(client_chan)
+// object EchoClient:
+//   def readLine(): String = ""
+
+//   def apply(c: EChan[EchoClient]^) =
+//     val c2 = c.rec_push()
+
+//     @tailrec def recur(c: Chan[EnvEnd[EchoCInner], EchoCInner]^): Unit @kill(c) =
+//       val input = readLine()
+//       val c2 = c.send(input)
+
+//       if (input == "exit") then
+//         c2.right().close()
+//       else
+//         recur(c2.left().rec_top())
+//     end recur
+//     recur(c2)
+//   end apply
+
+// object Main:
+//   def echo_test() =
+//     val channels = Chan[EchoServer]()
+//     val server_chan = assumeFresh(channels._1)
+//     val client_chan = assumeFresh(channels._2)
+//     EchoServer(server_chan)
+//     EchoClient(client_chan)
 
 /*
 type AtmDeposit = Recv[Int, Send[Int, Var[Z]]]
