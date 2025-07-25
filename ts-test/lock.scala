@@ -3,20 +3,26 @@ package typestate
 import language.experimental.captureChecking
 import caps.*
 import scala.annotation
-import scala.compiletime.ops.int.*
 
 class kill(xs: Any*) extends annotation.StaticAnnotation
 object FUN
+
+trait Sigma {
+  type A
+  type B
+  val a: A
+  val b: B
+}
+type `Pair`[A1, B1] = Sigma { type A = A1; type B = B1 }
 
 trait Lock:
   type isHeld // lock is locked, usable
   type isReleased // lock is unlocked, unusable
 
 object Lock:
-  def lock(lock: Lock, c: lock.isReleased^): (lock.isHeld^) @kill(c) = ???
-  def release(lock: Lock, c: lock.isHeld^): (lock.isReleased^) @kill(c) = ???
-
-class LockPair[L <: Lock](val x: L)(val c: x.isReleased^)
+  extension (lock: Lock)
+    def lock()(using c: lock.isReleased^): (Unit `Pair` (lock.isHeld^)) @kill(c) = ???
+    def release()(using c: lock.isHeld^): (Unit `Pair` (lock.isReleased^)) @kill(c) = ???
 
 class Table(n: Int) extends Lock:
   private val table: Array[Array[Double]] = new Array[Array[Double]](n)
@@ -24,40 +30,54 @@ class Table(n: Int) extends Lock:
     private val row: Array[Double] = table(m)
 
 object Table:
-  def compute_and_get_row(table: Table, n: Int, c: table.isHeld^): LockPair[table.Row] =
-    val row = new table.Row(n):
-      type isHeld = Int
-      type isReleased = Int
-    new LockPair(row)(0)
+  def apply(n: Int): Sigma { type A = Table; type B = a.isReleased^ } =
+    val table = new Table(n):
+      type isReleased = Unit
+      type isHeld = Unit
+    new Sigma:
+      type A = Table
+      type B = a.isReleased^
+      val a: table.type = table
+      val b: a.isReleased^ = ()
+  end apply
 
-  def compute_on_row(table: Table, row: table.Row, c: row.isHeld^): Double = ???
+  extension (table: Table)
+    def compute_and_get_row(n: Int)(using c: table.isHeld^):
+      Sigma { type A = table.Row; type B = a.isReleased^ } =
+      val row = new table.Row(n):
+        type isHeld = Unit
+        type isReleased = Unit
+      new Sigma {
+        type A = table.Row;
+        type B = a.isReleased^
+        val a: row.type = row
+        val b: a.isReleased^ = ()
+      }
+
+    def compute_on_row(row: table.Row)(using c: row.isHeld^): Double = ???
 
 object Main:
   import Lock.*
   import Table.*
 
-  def example1(table: Table, c: table.isReleased^): Double @kill(c) =
-    val lock1 = lock(table, c)
-
-    val rowAndLock = compute_and_get_row(table, 5, lock1)
-
-    val lock2 = lock(rowAndLock.x, rowAndLock.c)
-    val data = compute_on_row(table, rowAndLock.x, lock2)
-
-    release(rowAndLock.x, lock2)
-    release(table, lock1)
+  def example1() =
+    val table = Table(40)
+    table.lock()
+    val row = table.compute_and_get_row(10)
+    row.lock()
+    val data = table.compute_on_row(row)
+    row.release()
+    table.release()
     data
 
-  def example2(table: Table, c: table.isReleased^): Double @kill(c) =
-    val lock1 = lock(table, c)
-
-    val row5 = compute_and_get_row(table, 5, lock1)
-    val lock2 = lock(row5.x, row5.c)
-    val row6 = compute_and_get_row(table, 6, lock1)
-
-    release(table, lock1)
-    val data = compute_on_row(table, row5.x, lock2)
-    release(row5.x, lock2)
+  def example2() =
+    val table = Table(40)
+    table.lock()
+    val row = table.compute_and_get_row(10)
+    row.lock()
+    val data = table.compute_on_row(row)
+    table.release() // release table first!
+    row.release()
     data
 
 
