@@ -3109,6 +3109,15 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     }
   }
 
+  /**
+   * TODO: make different cps modes
+   * 1. Implicit Box -> just implicitly returns the one item inside the box inside of Sigma
+   * 2. CPS instead of ANF
+   *
+   * Trick is to have multiple different exceptions in tryCatchCPS1, handle each exception
+   * differnetly, and have extra parameter for `g` that is the type of transform
+   * determined by the CPSException
+   */
   def tryCatchCPS[T](f: => T)(g: (untpd.Tree => untpd.Tree) => T)(using Context): T =
     tryCatchCPS1(f)((nme, pre) => g(last =>
       val bNme: TermName = termName(s"${nme.toString}_CAP")
@@ -5350,8 +5359,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       pt match
         case DependentPair(fst, scd) =>
           adaptDependentPair(tree, fst, scd, pt)
-        case SigmaPair(tp) =>
-          adaptSigma(tree, tp)
+        // case SigmaPair(tp) =>
+        //   adaptSigma(tree, tp)
         case _: SelectionProto =>
           tree // adaptations for selections are handled in typedSelect
         case _ if ctx.mode.is(Mode.ImplicitsEnabled) && tree.tpe.isValueType =>

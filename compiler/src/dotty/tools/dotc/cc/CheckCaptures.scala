@@ -774,10 +774,6 @@ class CheckCaptures extends Recheck, SymTransformer:
       //   println("hello there!")
       val argType = recheck(arg, freshenedFormal)
         .showing(i"recheck arg $arg vs $freshenedFormal = $result", capt)
-      // println(s"${arg.tpe} <- tpe")
-      // println(s"${argType} <- argType")
-      // println(s"${arg.nuType} <- nuType")
-      // println("=====================")
       if formal.hasAnnotation(defn.UseAnnot) || formal.hasAnnotation(defn.ConsumeAnnot) then
         // The @use and/or @consume annotation is added to `formal` by `prepareFunction`
         capt.println(i"charging deep capture set of $arg: ${argType} = ${argType.deepCaptureSet}")
@@ -1377,10 +1373,18 @@ class CheckCaptures extends Recheck, SymTransformer:
      */
     private def conformsSuccess(actual: Type, actualBoxed: Type, tree: Tree)(using Context): Type =
       actual match
-        case actual: TermRef if !(actual eq actualBoxed)=>
+        case actual: TermRef if !(actual eq actualBoxed) =>
           boxedTermRefs.update(actualBoxed, actual)
         case _ =>
       actualBoxed
+
+    def dropAllAnnots(tpe: Type)(using Context) =
+      val tm = new TypeMap:
+        def apply(tp: Type) =
+          tp match
+            case AnnotatedType(parent, _) => apply(parent)
+            case _ => mapOver(tp)
+      tm(tpe)
 
     /** Massage `actual` and `expected` types before checking conformance.
      *  Massaging is done by the methods following this one:
@@ -1397,19 +1401,36 @@ class CheckCaptures extends Recheck, SymTransformer:
       if actualBoxed eq actual then
         // Only `addOuterRefs` when there is no box adaptation
         expected1 = addOuterRefs(expected1, actual, tree.srcPos)
+
+      // if (tree.show.length > 610 && tree.show.length < 620) then
+      //   println(s"PRIOR")
+
+      // if (tree.show.length > 650 && tree.show.length < 670) then
+      //   println(s"${dropAllAnnots(actualBoxed).show}")
+      //   println(s"${dropAllAnnots(expected1).show}")
+      //   println(s"${dropAllAnnots(actualBoxed)}")
+      //   println(s"${dropAllAnnots(expected1)}")
       ccState.testOK(isCompatible(actualBoxed, expected1)) match
         case CompareResult.OK =>
+          // if (tree.show.length > 610 && tree.show.length < 620) then
+          //   println(s"AFTER")
           if debugSuccesses then tree match
               case Ident(_) =>
                 println(i"SUCCESS $tree for $actual <:< $expected:\n${TypeComparer.explained(_.isSubType(actualBoxed, expected1))}")
               case _ =>
           conformsSuccess(actual, actualBoxed, tree)
         case fail: CompareFailure =>
-          capt.println(i"conforms failed for ${tree}: $actual vs $expected")
-          err.typeMismatch(tree.withType(actualBoxed), expected1,
+          // val surg = dropAllAnnots(expected1).asInstanceOf[RefinedType]
+          // println(surg.parent)
+          // println(surg.refinedName.show)
+          // println(surg.refinedInfo)
+          // report.error(i"conforms failed for \n ${tree} \n Actual: $actual \n Expected: $expected")
+
+         err.typeMismatch(tree.withType(actualBoxed), expected1,
               addApproxAddenda(
                   addenda ++ errorNotes(fail.errorNotes),
                   expected1))
+          // println(expected1)
           actual
     end checkConformsExpr
 
@@ -1424,7 +1445,9 @@ class CheckCaptures extends Recheck, SymTransformer:
         if defn.isNonRefinedFunction(expected) =>
           actual match
             case defn.RefinedFunctionOf(rinfo: MethodType) =>
-              depFun(args, resultType, isContextual, rinfo.paramNames)
+              // println(s"${resultType}")
+              val restpe2 = toResultInResults(NoSymbol, report.error(_), mapNonDep = true)(resultType)
+              depFun(args, restpe2, isContextual, rinfo.paramNames, true)
             case _ => expected
         case expected @ defn.RefinedFunctionOf(einfo: MethodType)
         if einfo.allParamNamesSynthetic =>

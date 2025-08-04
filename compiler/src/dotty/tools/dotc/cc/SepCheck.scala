@@ -617,7 +617,8 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
         hiddenRef.pathRoot match
           case ref: TermRef =>
             val refSym = ref.symbol
-            if currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refSym.maybeOwner.enclosingMethodOrClass) then
+            if currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refSym.maybeOwner.enclosingMethodOrClass)
+              && !(currentOwner.enclosingMethodOrClass.derivesFrom(typer.getSigma))then
               report.error(em"""Separation failure: $descr non-local $refSym""", pos)
             else if refSym.is(TermParam)
               && !refSym.hasAnnotation(defn.ConsumeAnnot)

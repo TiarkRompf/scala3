@@ -330,6 +330,28 @@ class Setup extends PreRecheck, SymTransformer, SetupAPI:
             refiningNames += rname
             val parent1 = try this(parent) finally refiningNames = saved
             tp.derivedRefinedType(parent1, rname, this(rinfo))
+          /**
+           * Cases to deal with level
+           * If the result type of a function is another function , we should
+           * transform the result type of that function in a nested level,
+           * since the term associated with the function will have its
+           * result type be transformed at a nested level.
+           */
+          // inlined mapOverLambda function from TypeMap
+          case tp: MethodType if ccState.modeIsResult() =>
+            val restpe = tp.resultType
+            val saved = variance
+            variance = if (defn.MatchCase.isInstance(restpe)) 0 else -variance
+            val ptypes1 = tp.paramInfos.mapConserve(apply).asInstanceOf[List[tp.PInfo]]
+            variance = saved
+            derivedLambdaType(tp)(ptypes1,
+            ccState.inNestedLevel(apply(restpe)))
+          // case defn.FunctionOf(args, resType, contextual) if ccState.modeIsResult() =>
+          //   defn.FunctionOf(
+          //     args.mapConserve(apply),
+          //     ccState.inNestedLevel(apply(resType)),
+          //     contextual
+          //   )
           case _ =>
             mapFollowingAliases(tp)
         addVar(
@@ -544,7 +566,8 @@ class Setup extends PreRecheck, SymTransformer, SetupAPI:
     def transformResultType(tpt: TypeTree, sym: Symbol)(using Context): Unit =
       // First step: Transform the type and record it as knownType of tpt.
       try
-        transformTT(tpt, sym, boxed = false)
+        ccState.inResult:
+          transformTT(tpt, sym, boxed = false)
       catch case ex: IllegalCaptureRef =>
         capt.println(i"fail while transforming result type $tpt of $sym")
         throw ex

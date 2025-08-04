@@ -67,6 +67,14 @@ class CCState:
 
   def recordLevel(sym: Symbol)(using Context): Unit = mySymLevel(sym) = curLevel
 
+  private var _inResult = false
+
+  inline def inResult[T](inline op: T)(using Context): T =
+    _inResult = true
+    try op finally _inResult = false
+
+  def modeIsResult(): Boolean = _inResult
+
   // ------ BiTypeMap adjustment -----------------------
 
   private var myMapFutureElems = true
