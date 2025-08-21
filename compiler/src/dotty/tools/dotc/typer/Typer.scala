@@ -87,7 +87,7 @@ object Typer {
   /** Tree adaptation lost fidelity; this attachment preserves the original tree. */
   val AdaptedTree = new Property.StickyKey[tpd.Tree]
 
-  /** Tree has alread been ANF transformed **/
+  /** Tree has alread been ANF transformed */
   val ANFTransformed = new Property.Key[Unit]
 
   /** An attachment on a Select node with an `apply` field indicating that the `apply`
@@ -1059,7 +1059,16 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         case qual               => tryQual(qual)
       else
         val qual = typedExpr(tree.qualifier, shallowSelectionProto(tree.name, pt, this, tree.nameSpan))
-        typedSelectWithAdapt(tree, pt, qual).withSpan(tree.span).computeNullable()
+        val fin = typedSelectWithAdapt(tree, pt, qual).withSpan(tree.span).computeNullable()
+        // fin match
+        //   case Select(qual, name @ (nme._1 | nme._2)) =>
+        //     println(fin.show)
+        //     println(qual)
+        //     println(qual.tpe.widenDealias)
+        //     println(fin.tpe)
+        //     println("=================")
+        //   case _ =>
+        fin
 
     def javaSelection(qual: Tree)(using Context) =
       qual match
@@ -2971,6 +2980,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     val rhs1 = vdef.rhs match
       case rhs @ Ident(nme.WILDCARD) =>
         rhs.withType(tpt1.tpe)
+      /**
+       * Special case for handling
+       * val a = b where b: Sigma
+       */
       case rhs if isSigma(tpt1.tpe.widenExpr) =>
         val isInferred = tpt1 match
           case tpt1: TypeTree => tpt1.isInferred
@@ -2982,22 +2995,23 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
         val original = rhs.hasAttachment(ANFTransformed)
 
-        val shouldTransform =
+        val shouldTryTransform =
           sym.exists && !sym.isOneOf(Module | Param) &&
           !vdef.isEmpty && !rhsIsEmpty && isInferred && !original
 
-        if !shouldTransform then
+        if !shouldTryTransform then
           // prevents transformation because expected type (tpt1.tpe) is Sigma type
           excludeDeferredGiven(rhs, sym):
             typedExpr(_, tpt1.tpe.widenExpr)
         else
-          val res = excludeDeferredGiven(rhs, sym)(typedExpr(_))
-          tpt2 = typedTail(SingletonTypeTree(res).withSpan(tpt1.span))
-          sym.info = tpt2.tpe
-          res match
-            case Select(Ident(_), _) =>
-            case other =>
-              report.error(i"Other rhs is being transformed: ${other}", res.srcPos)
+          val fstTpe = tpt1.tpe.widenExpr.typeMembers.head.info match
+            case TypeAlias(parent) => parent
+            case tp => tp
+
+          val res = excludeDeferredGiven(rhs, sym)(typedExpr(_)) // try transformation
+          if res.tpe <:< fstTpe then // if succesfully transformed TODO: change check?
+            tpt2 = typedTail(SingletonTypeTree(res).withSpan(tpt1.span))
+            sym.info = tpt2.tpe
           res
       case rhs if isCpsType(tpt1.tpe.widenExpr) =>
         // cases - either typedExpr finds new CPS expr,
@@ -5357,10 +5371,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       //     EmptyTree
 
       pt match
-        case DependentPair(fst, scd) =>
-          adaptDependentPair(tree, fst, scd, pt)
-        // case SigmaPair(tp) =>
-        //   adaptSigma(tree, tp)
+        // case DependentPair(fst, scd) =>
+        //   adaptDependentPair(tree, fst, scd, pt)
+        case SigmaPair(tp) =>
+          adaptSigma(tree, tp.dealias)
         case _: SelectionProto =>
           tree // adaptations for selections are handled in typedSelect
         case _ if ctx.mode.is(Mode.ImplicitsEnabled) && tree.tpe.isValueType =>
@@ -5494,6 +5508,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     end adaptDependentPair
 
     /**
+     * @param pt should be dealiased (e.g. stripped of top level annots)
      * Algorithm:
      * 1. Check if tree pt is RecType or not
      * 2. If not, then just summon type of scd and construct it in basic way
@@ -5511,19 +5526,29 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       def memberToTree(tpe: Type): Tree =
         tpe match
           case tp: NamedType => ref(tp)
-          case _ => throw new PairAdaptException
+          case _ => TypeTree(tpe, true)
 
-      // todo need to check if fst is singleton.
-      val fst = pt.typeMembers.head.info.stripAlias
+      val fst =
+        val fst = pt.typeMembers.head.info.stripAlias
+        println(s"${fst} <- at adaptSigma")
+        fst match
+          case tvar: TypeVar =>
+            println(tvar)
+            println(tvar.typeToInstantiateWith)
+            fst
+          case _ => fst
+
       val scd =
         val scd = pt.typeMembers.last.info.stripAlias
         pt match
         case pt: RecType =>
+          if !fst.isSingleton then
+            report.error(
+              i"Adapting sigma failed with: ${fst} is not a singleton type."
+            , tree.srcPos)
           val selfRef = TermRef(pt.recThis, termName("a"))
           substSigmaMember(scd, tree.tpe, selfRef)
         case pt => scd
-
-      // println(fst)
 
       val scdArg = inferImplicitArg(scd, tree.span.endPos)
       scdArg.tpe match
@@ -5547,7 +5572,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         untpd.New(
           untpd.Template(
             untpd.DefDef(nme.CONSTRUCTOR, Nil, untpd.TypeTree(), EmptyTree),
-            untpd.Ident(getSigma.name) :: Nil,
+            untpd.Ident(defn.Sigma.name) :: Nil,
             EmptyValDef,
             body
           )

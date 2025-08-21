@@ -15,7 +15,7 @@ object KillType:
   import KillOps.*
   def apply(tp: Type, refs: List[Tree])(using Context): Type =
     val annotTree =
-      New(getKillAnnot.typeRef,
+      New(defn.KillAnnot.typeRef,
         Typed(
           SeqLiteral(refs, TypeTree(defn.AnyType)),
           TypeTree(defn.RepeatedParamClass.typeRef.appliedTo(defn.AnyType))) :: Nil)

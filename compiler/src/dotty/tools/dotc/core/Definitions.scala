@@ -2094,6 +2094,17 @@ class Definitions {
       case Some(pkgs) => pkgs.contains(sym.owner)
       case none => false
 
+  /**
+   * Typestate definitions - in scala/typestate/package.scala
+   * Are only enabled if capture checking is enabled.
+   */
+  @tu lazy val TypestateModule: Symbol = requiredPackage("scala.typestate")
+  @tu lazy val KillAnnot: ClassSymbol = requiredClass("scala.typestate.kill")
+  @tu lazy val FuncSelfRef: TermSymbol = TypestateModule.requiredValue("FUN")
+  @tu lazy val Sigma: ClassSymbol = requiredClass("scala.typestate.Sigma")
+  @tu lazy val TSPair: TypeSymbol = TypestateModule.moduleClass.requiredType("Pair".toTypeName)
+  @tu lazy val IBox: TypeSymbol = TypestateModule.moduleClass.requiredType("IBox".toTypeName)
+
   /** Experimental definitions that can nevertheless be accessed from a stable
    *  compiler if capture checking is enabled.
    */
@@ -2105,7 +2116,8 @@ class Definitions {
     Caps_Mutable, Caps_SharedCapability, ConsumeAnnot,
     CapsUnsafeModule, CapsUnsafeModule.moduleClass,
     CapsInternalModule, CapsInternalModule.moduleClass,
-    RetainsAnnot, RetainsCapAnnot, RetainsByNameAnnot)
+    RetainsAnnot, RetainsCapAnnot, RetainsByNameAnnot,
+    TypestateModule, KillAnnot, FuncSelfRef, Sigma, TSPair, IBox)
 
   /** Experimental language features defined in `scala.runtime.stdLibPatches.language.experimental`.
    *

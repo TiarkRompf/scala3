@@ -1,14 +1,10 @@
 // Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
 // Uses channel itself directly
-package typestate
-
 import language.experimental.captureChecking
 import caps.*, unsafe.*
+import typestate.*
 import scala.annotation, annotation.tailrec
 import scala.compiletime.ops.int.*
-
-class kill(xs: Any*) extends annotation.StaticAnnotation
-object FUN
 
 trait Session
 class Send[T, P <: Session] extends Session
@@ -28,9 +24,18 @@ type Dual[P <: Session] <: Session = P match
   case Var[n] => Var[n]
   case End => End
 
-class Chan[E <: Tuple, P <: Session]
+class Chan[E <: Tuple, P <: Session] 
 type EChan[P <: Session] = Chan[EmptyTuple, P]
-type EnvEnd[P <: Session] = P *: EmptyTuple
+type Emp[P <: Session] = P *: EmptyTuple
+
+def loop[T](x: T^)(cond: => Boolean)(body: (y: T^) => (Option[T^]) @kill(y)): Unit @kill(x) =
+  if cond then
+    body(x) match
+      case Some(c) =>
+        loop[T](c)(cond)(body)
+      case _ =>
+
+def Som[T](x: T): Option[T] = Some(x)
 
 object Chan:
   def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^)=
@@ -60,13 +65,16 @@ object Chan:
     def left(): (Chan[E, L]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, L]]
 
-  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Select[L, R]]^))
     def right(): (Chan[E, R]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, R]]
 
-  extension [E <: Tuple, L <: Session, R <: Session, T](chan: Chan[E, Branch[L, R]]^)
-    def branch(left: (c: Chan[E, L]^) => T @kill(c))
-              (right: (c: Chan[E, R]^) => T @kill(c)): T @kill(chan) =
+  // extension [E <: Tuple, L <: Session, R <: Session, T](chan: Chan[E, Branch[L, R]]^)
+  //   def branch(left: (c: Chan[E, L]^) => T @kill(c))
+  //             (right: (c: Chan[E, R]^) => T @kill(c)): T @kill(chan) =
+  //     ???
+
+  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Branch[L, R]]^))
+    def branch(): Either[Chan[E, L]^, Chan[E, R]^] @kill(chan) =
       ???
 
   extension [E <: Tuple](chan: Chan[E, End]^)
@@ -81,43 +89,56 @@ object EchoServer:
   def apply(c: EChan[EchoServer]^) =
     val c2 = c.rec_push()
 
-    def recur(c: Chan[EchoSInner *: EmptyTuple, EchoSInner]^): Unit @kill(c) =
+    def recur(c: Chan[Emp[EchoSInner], EchoSInner]^): Unit @kill(c) = {
       val (c2, str) = c.recv()
       println(str)
-      c2.branch { l =>
-        recur(l.rec_top())
-      } { r =>
-        r.close()
-      }
+      c2.branch() match
+        case Left(c) =>
+          recur(c.rec_top())
+        case Right(c) =>
+          c.close()
+    }
+
+    recur(c2)
+  end apply
+
+  def apply2(c: EChan[EchoServer]^) =
+    val c2 = c.rec_push()
+
+    loop[Chan[Emp[EchoSInner], EchoSInner]](c2)(true) { c =>
+      val (c2, str) = c.recv()
+      println(str)
+      c2.branch() match
+        case Left(c) =>
+          Som(c.rec_top())
+        case Right(c) =>
+          c.close()
+          None
+    }
+
+object EchoClient:
+  def readLine(): String = ""
+
+  def apply(c: EChan[EchoClient]^) =
+    val c2 = c.rec_push()
+
+    @tailrec def recur(c: Chan[Emp[EchoCInner], EchoCInner]^): Unit @kill(c) =
+      val input = readLine()
+      val c2 = c.send(input)
+
+      if (input == "exit") then
+        c2.right().close()
+      else
+        recur(c2.left().rec_top())
     end recur
     recur(c2)
   end apply
 
-// object EchoClient:
-//   def readLine(): String = ""
-
-//   def apply(c: EChan[EchoClient]^) =
-//     val c2 = c.rec_push()
-
-//     @tailrec def recur(c: Chan[EnvEnd[EchoCInner], EchoCInner]^): Unit @kill(c) =
-//       val input = readLine()
-//       val c2 = c.send(input)
-
-//       if (input == "exit") then
-//         c2.right().close()
-//       else
-//         recur(c2.left().rec_top())
-//     end recur
-//     recur(c2)
-//   end apply
-
-// object Main:
-//   def echo_test() =
-//     val channels = Chan[EchoServer]()
-//     val server_chan = assumeFresh(channels._1)
-//     val client_chan = assumeFresh(channels._2)
-//     EchoServer(server_chan)
-//     EchoClient(client_chan)
+object Main:
+  def echo_test() =
+    val (server, client) = Chan[EchoServer]()
+    EchoServer(server)
+    EchoClient(client)
 
 /*
 type AtmDeposit = Recv[Int, Send[Int, Var[Z]]]

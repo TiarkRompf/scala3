@@ -1,11 +1,4 @@
-package typestate
-
-import language.experimental.captureChecking
-import caps.*
-import scala.annotation
-
-class kill(xs: Any*) extends annotation.StaticAnnotation
-object FUN
+import typestate.*
 
 class myCap:
   type pathCap

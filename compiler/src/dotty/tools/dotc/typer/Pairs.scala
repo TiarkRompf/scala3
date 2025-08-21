@@ -33,26 +33,22 @@ object DependentPair:
 /**
  * Sigma type
  */
-var Sigma: ClassSymbol | Null = null
+// var Sigma: ClassSymbol | Null = null
 
-lazy val nme_A = typeName("A")
-lazy val nme_B = typeName("B")
-lazy val nme_a = termName("a")
-lazy val nme_b = termName("b")
-
-def getSigma(using Context): ClassSymbol =
-  Sigma match
-    case null =>
-      Sigma = requiredClass("typestate.Sigma")
-      Sigma.uncheckedNN
-    case sym => sym
+// def getSigma(using Context): ClassSymbol =
+//   Sigma match
+//     case null =>
+//       Sigma = requiredClass("typestate.Sigma")
+//       Sigma.uncheckedNN
+//     case sym => sym
 
 def isSigma(tpe: Type)(using Context) =
-  tpe.dealias.typeSymbol == getSigma
+  tpe.dealias.typeSymbol == defn.Sigma
   || {
     tpe.dealias match
       case AppliedType(tycon: TypeRef, _) => // hack for type Pair
-        tycon.underlying.typeSymbol == getSigma
+        tycon.symbol == defn.TSPair ||
+        tycon.underlying.typeSymbol == defn.Sigma
       case _ => false
   }
 

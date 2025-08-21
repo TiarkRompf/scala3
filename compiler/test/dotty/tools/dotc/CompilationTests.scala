@@ -38,7 +38,7 @@ class CompilationTests {
       compileFile("tests/pos-special/sourcepath/outer/nested/Test4.scala", defaultOptions.and("-sourcepath", "tests/pos-special/sourcepath")),
       compileFilesInDir("tests/pos-scala2", defaultOptions.and("-source", "3.0-migration")),
       compileFilesInDir("tests/pos-custom-args/captures", defaultOptions.and("-language:experimental.captureChecking")),
-      compileFilesInDir("tests/pos-custom-args/typestate/", defaultOptions.and("-language:experimental.captureChecking").and("-Yrecheck-test")),
+      compileFilesInDir("tests/pos-custom-args/typestate/", defaultOptions.and("-language:experimental.captureChecking")),
       compileFile("tests/pos-special/utf8encoded.scala", defaultOptions.and("-encoding", "UTF8")),
       compileFile("tests/pos-special/utf16encoded.scala", defaultOptions.and("-encoding", "UTF16")),
       compileDir("tests/pos-special/i18589", defaultOptions.and("-Wsafe-init").without("-Ycheck:all")),
@@ -148,7 +148,7 @@ class CompilationTests {
       compileFilesInDir("tests/neg", defaultOptions, FileFilter.exclude(TestSources.negScala2LibraryTastyExcludelisted)),
       compileFilesInDir("tests/neg-deep-subtype", allowDeepSubtypes),
       compileFilesInDir("tests/neg-custom-args/captures", defaultOptions.and("-language:experimental.captureChecking")),
-      compileFilesInDir("tests/neg-custom-args/typestate/", defaultOptions.and("-language:experimental.captureChecking").and("-Yrecheck-test")),
+      compileFilesInDir("tests/neg-custom-args/typestate/", defaultOptions.and("-language:experimental.captureChecking")),
       compileFile("tests/neg-custom-args/sourcepath/outer/nested/Test1.scala", defaultOptions.and("-sourcepath", "tests/neg-custom-args/sourcepath")),
       compileDir("tests/neg-custom-args/sourcepath2/hi", defaultOptions.and("-sourcepath", "tests/neg-custom-args/sourcepath2", "-Xfatal-warnings")),
       compileList("duplicate source", List(

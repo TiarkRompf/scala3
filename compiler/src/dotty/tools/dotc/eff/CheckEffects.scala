@@ -34,13 +34,14 @@ object CheckEffects:
       def boxedToTermRef: Type
   end FXCheckerAPI
 
-  private var CheckEffectsPhase: Phase | Null = null // need to find better than this hack
+  // Maybe add this to Phases.scala
+  private var CheckEffectsPhase: Phase = NoPhase
 
   def isEffCheckingOrSetup(using Context): Boolean =
     val effId = CheckEffectsPhase match
-      case null =>
-        CheckEffectsPhase = ctx.base.allPhases.find(_.phaseName == "eff").getOrElse(NoPhase)
-        CheckEffectsPhase.nn.id
+      case NoPhase =>
+        CheckEffectsPhase = ctx.base.allPhases.find(classOf[CheckEffects].isInstance).getOrElse(NoPhase)
+        CheckEffectsPhase.id
       case phase =>
         phase.id
     val ctxId = ctx.phaseId
@@ -55,26 +56,26 @@ object CheckEffects:
   def atCC[T](op: Context ?=> T)(using Context): T =
     atPhase(checkCapturesPhase)(op)
 
-  private var killAnnot: ClassSymbol | Null = null // typestate.kill
-  private var funcSelfRef: Symbol | Null = null // typestate.FUN
+  // private var killAnnot: ClassSymbol | Null = null // typestate.kill
+  // private var funcSelfRef: Symbol | Null = null // typestate.FUN
   private var effAnnot: ClassSymbol | Null = null // typestate.eff
 
-  def getKillAnnot(using Context): ClassSymbol =
-    killAnnot match
-      case null =>
-        killAnnot = requiredClass("typestate.kill")
-        killAnnot.nn
-      case annot => annot
+  // def getKillAnnot(using Context): ClassSymbol =
+  //   killAnnot match
+  //     case null =>
+  //       killAnnot = requiredClass("typestate.kill")
+  //       killAnnot.nn
+  //     case annot => annot
 
   // Note that function self reference is a CaptureRef, but not a TrackableRef e.g. .isTrackableRef false
-  def getFuncSelfRef(using Context): Symbol =
-    funcSelfRef match
-      case null =>
-        funcSelfRef = requiredModule("typestate.FUN")
-        funcSelfRef.nn
-      case sym => sym
+  // def getFuncSelfRef(using Context): Symbol =
+  //   funcSelfRef match
+  //     case null =>
+  //       funcSelfRef = requiredModule("typestate.FUN")
+  //       funcSelfRef.nn
+  //     case sym => sym
 
-  def makeFuncSelfRef(using Context): Tree = ref(getFuncSelfRef)
+  def makeFuncSelfRef(using Context): Tree = ref(defn.FuncSelfRef)
 
   def getEffAnnot(using Context): ClassSymbol =
     effAnnot match
@@ -93,17 +94,17 @@ object CheckEffects:
      * This is less robust, but it should be fine as long as the compilation tests do not re-use the
      * name "kill" or "FUN" for a class.
      */
-    def isKill(using Context): Boolean =
-      if ctx.settings.YrecheckTest.value then
-        sym.name == getKillAnnot.name
-      else
-        sym == getKillAnnot
+    def isKill(using Context): Boolean = sym == defn.KillAnnot
+      // if ctx.settings.YrecheckTest.value then
+      //   sym.name == getKillAnnot.name
+      // else
+      //   sym == getKillAnnot
 
-    def isFuncSelfRef(using Context): Boolean =
-      if ctx.settings.YrecheckTest.value then
-        sym.name == getFuncSelfRef.name
-      else
-        sym == getFuncSelfRef
+    def isFuncSelfRef(using Context): Boolean = sym == defn.FuncSelfRef
+      // if ctx.settings.YrecheckTest.value then
+      //   sym.name == getFuncSelfRef.name
+      // else
+      //   sym == getFuncSelfRef
 
     def isEff(using Context): Boolean =
       effAnnot match
@@ -113,9 +114,15 @@ object CheckEffects:
         case annot => sym == annot
 
   extension (cref: Capability)
+    /**
+     * Removes all derived capability annotations.
+     */
+    def stripAllDC(using Context): Capability =
+      cref.stripReach.stripMaybe.stripReadOnly
+
     def refTree(using Context): Tree =
       import ast.untpd
-      cref match
+      cref.stripAllDC match
         case cr: TermRef => ref(cr)
         case cr: TermParamRef => untpd.Ident(cr.paramName).withType(cr)
         case cr: RootCapability => ref(defn.captureRoot)
@@ -123,12 +130,6 @@ object CheckEffects:
           println(s"$cr <- is being turned into tree!")
           // untpd.Ident(new Name(cr.toString)).withType(cr)
           EmptyTree
-
-    /**
-     * Removes all derived capability annotations.
-     */
-    def stripAllDC(using Context): Capability =
-        cref.stripReach.stripMaybe.stripReadOnly
 end CheckEffects
 
 /**
@@ -480,7 +481,7 @@ class CheckEffects extends Recheck:
      * 1. Killing a non function "value" should do nothing - so first level TypeRefs, ConstantTypes, e.g. new File, 5, etc.
      * 2. If we kill a ObjectCapability with an EMPTY capture set, then it it ILLEGAL!
      * 3. Killing a terminal capability does not do anything (can also be error i guess)
-     * 4. If something is killed that is∑ not a Capability but has a capture set, treat it as a capability because it is
+     * 4. If something is killed that is not a Capability but has a capture set, treat it as a capability because it is
      * probably a application to an anonymous function (or eta expansion), which means we will kill its qualifier
      */
     override def recheckApply(tree: Apply, pt: Type)(using Context): Type =
@@ -613,8 +614,9 @@ class CheckEffects extends Recheck:
               case tp: ObjectCapability if tp.isTrackableRef => true
               case tp =>
                 // println(i"${tp} <- FILTER DEAD FREE AND FOUND")
-                println(s"${tree.fun.show}")
-                println(s"${ref.show} <- filter dead free and found")
+                // println(tree.show)
+                // println(tree.args.map(_.show))
+                // println(s"${ref.show} <- filter dead free and found")
                 false
           }.flatMap(toCapabilities)*).footprint
 
@@ -622,23 +624,39 @@ class CheckEffects extends Recheck:
 
           val (fnRef, fnCS) = fn match
             case Select(qual, _) => // func.apply() is Select(func, apply) for some closure func
+              println(captures(qual))
               (qual.tpe, captures(qual).footprint)
             case _ =>
               (fn.tpe, fn.symbol.captureVars.elems.footprint)
 
           fnRef match
-            case cref: Capability =>
+            case fnRef: Capability => // is a capability, so should be tracked
               if killsSelf then
-                killed += cref
+                killed += fnRef
                 killed.addAll(fnCS.iterator)
               else if !killedFree.isEmpty then
-                killed += cref // if a function kills a free variable but not itself, then we only add the function to the kill set.
-                  // this is because if we add the entire function qualifier, it is possible for the outer to kill something which
-                  // is NOT in its captured variables. cf TODO
+                killed += fnRef
+                  // if function kills free variable but not itself, we add function to kill set.
+                  // this is because if we add the entire function qualifier,
+                  // it is possible for the outer to kill something which
+                  // is NOT in its captured variables. cf TODO (yeah i forgot what i was supposed to put here)
             case tp =>
+              if killsSelf then // is not a capability, so could be curried function, or block, not bound to name.
+                println(fnCS)
+                killed.addAll(fnCS.iterator.map(stripAllDC))
               // println(i"${tp} <- fntpe match in recheckApply") // probably applying closure to something
+          // if (fn.show.contains("fn.apply().apply")) then
+          //   println(s"${fn} <- fn")
+          //   println(s"${fnCS} <- fnCS")
+          //   println(s"${fntpe.show} <- fntpe.show")
+          //   println(s"${fn.tpe} <- fn.tpe")
+          //   println(s"${fn.symbol.info} <- i'm becoming this")
+          //   println(s"${killsSelf} <- Plox")
+          //   println(s"${killed} <- KILLED")
+          //   println(s"${fn.symbol} <- sym")
         case _ =>
           assert(!fntpeIsKill, i"${tree.fun} is kill function but application type ${appType} is not top level kill type!")
+      end match
       appType.dropTopLevelKill
     end recheckApply
 
@@ -706,6 +724,7 @@ class CheckEffects extends Recheck:
 
         val closTpe = recheckClosure(expr, pt, forceDependent = true)
         expr.setNuType(closTpe)
+        // println(s"${closTpe.show} <- closTpe")
         closTpe
     end recheckClosureBlock
 
