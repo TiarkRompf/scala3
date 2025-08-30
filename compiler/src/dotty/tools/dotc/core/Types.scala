@@ -46,6 +46,8 @@ import scala.annotation.internal.sharable
 import scala.annotation.threadUnsafe
 import dotty.tools.dotc.cc.ccConfig
 
+import typer.SigmaOps.*
+
 object Types extends TypeUtils {
 
   @sharable private var nextId = 0
@@ -5743,7 +5745,10 @@ object Types extends TypeUtils {
 
   /**    = T
    */
-  class TypeAlias(alias: Type) extends AliasingBounds(alias)
+  class TypeAlias(alias: Type) extends AliasingBounds(alias):
+    private var _isSigmaTypeMember: Boolean = false
+    def isSigmaTypeMember: Boolean = _isSigmaTypeMember
+    def isSigmaTypeMember_=(b: Boolean): Unit = _isSigmaTypeMember = b
 
   /**    = T     where `T` is a `MatchType`
    *
@@ -6218,6 +6223,9 @@ object Types extends TypeUtils {
     protected def derivedLambdaType(tp: LambdaType)(formals: List[tp.PInfo], restpe: Type): Type =
       tp.derivedLambdaType(tp.paramNames, formals, restpe)
 
+    protected def derivedSigma2Type(tp: Type, tp1: Type, tp2: Type): Type =
+      tp.derivedSigma2Type(tp1, tp2)
+
     protected def mapArg(arg: Type, tparam: ParamInfo): Type = arg match
       case arg: TypeBounds => this(arg)
       case arg => atVariance(variance * tparam.paramVarianceSign)(this(arg))
@@ -6323,6 +6331,14 @@ object Types extends TypeUtils {
         case tp: LambdaType =>
           mapOverLambda(tp)
 
+        // TODO - make this cleaner!
+        case tp: TypeAlias if tp.isSigmaTypeMember =>
+          val res = derivedAlias(tp, this(tp.alias))
+          res match
+            case tp: TypeAlias => tp.isSigmaTypeMember = true
+            case _ =>
+          res
+
         case tp: AliasingBounds =>
           derivedAlias(tp, atVariance(0)(this(tp.alias)))
 
@@ -6340,6 +6356,9 @@ object Types extends TypeUtils {
 
         case CapturingType(parent, refs) =>
           mapCapturingType(tp, parent, refs, variance)
+
+        case Sigma2Type(tp1, tp2) =>
+          derivedSigma2Type(tp, this(tp1), this(tp2))
 
         case tp @ AnnotatedType(underlying, annot) =>
           val underlying1 = this(underlying)
@@ -6864,6 +6883,8 @@ object Types extends TypeUtils {
       case CapturingType(parent, refs) =>
         (this(x, parent) /: refs.elems): (x, elem) =>
           this(x, elem.coreType)
+
+      // case Sigma2Type(tp1, tp2) => // TODO
 
       case AnnotatedType(underlying, annot) =>
         this(applyToAnnot(x, annot), underlying)

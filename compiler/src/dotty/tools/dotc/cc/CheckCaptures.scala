@@ -770,8 +770,6 @@ class CheckCaptures extends Recheck, SymTransformer:
      */
     protected override def recheckArg(arg: Tree, formal: Type, pref: ParamRef, app: Apply)(using Context): Type =
       val freshenedFormal = capToFresh(formal, Origin.Formal(pref, app))
-      // if arg.symbol.name.toString == "aba" then
-      //   println("hello there!")
       val argType = recheck(arg, freshenedFormal)
         .showing(i"recheck arg $arg vs $freshenedFormal = $result", capt)
       if formal.hasAnnotation(defn.UseAnnot) || formal.hasAnnotation(defn.ConsumeAnnot) then
@@ -1035,8 +1033,6 @@ class CheckCaptures extends Recheck, SymTransformer:
                 ""
             disallowRootCapabilitiesIn(
               tree.tpt.nuType, NoSymbol, i"Mutable $sym", "have type", addendum, sym.srcPos)
-          if tree.name.toString == "ka" then
-            val j = 2309487
           checkInferredResult(super.recheckValDef(tree, sym), tree)
       finally
         if !sym.is(Param) then
@@ -1378,6 +1374,9 @@ class CheckCaptures extends Recheck, SymTransformer:
         case _ =>
       actualBoxed
 
+    /**
+     * Method created solely for debugging purposes
+     */
     def dropAllAnnots(tpe: Type)(using Context) =
       val tm = new TypeMap:
         def apply(tp: Type) =
@@ -1402,35 +1401,35 @@ class CheckCaptures extends Recheck, SymTransformer:
         // Only `addOuterRefs` when there is no box adaptation
         expected1 = addOuterRefs(expected1, actual, tree.srcPos)
 
-      // if (tree.show.length > 610 && tree.show.length < 620) then
-      //   println(s"PRIOR")
-
-      // if (tree.show.length > 650 && tree.show.length < 670) then
-      //   println(s"${dropAllAnnots(actualBoxed).show}")
-      //   println(s"${dropAllAnnots(expected1).show}")
-      //   println(s"${dropAllAnnots(actualBoxed)}")
-      //   println(s"${dropAllAnnots(expected1)}")
       ccState.testOK(isCompatible(actualBoxed, expected1)) match
         case CompareResult.OK =>
-          // if (tree.show.length > 610 && tree.show.length < 620) then
-          //   println(s"AFTER")
           if debugSuccesses then tree match
               case Ident(_) =>
                 println(i"SUCCESS $tree for $actual <:< $expected:\n${TypeComparer.explained(_.isSubType(actualBoxed, expected1))}")
               case _ =>
           conformsSuccess(actual, actualBoxed, tree)
         case fail: CompareFailure =>
-          // val surg = dropAllAnnots(expected1).asInstanceOf[RefinedType]
-          // println(surg.parent)
-          // println(surg.refinedName.show)
-          // println(surg.refinedInfo)
-          // report.error(i"conforms failed for \n ${tree} \n Actual: $actual \n Expected: $expected")
-
-         err.typeMismatch(tree.withType(actualBoxed), expected1,
-              addApproxAddenda(
-                  addenda ++ errorNotes(fail.errorNotes),
-                  expected1))
+          // report.error(i"conforms failed for \n ${tree} \n Actual: $actual \n Expected: $expected",
+          //   tree.srcPos)
+          // println(actualBoxed)
           // println(expected1)
+          // actualBoxed.stripCapturing match
+          //   case defn.RefinedFunctionOf(amt) =>
+          //     expected1.stripCapturing match
+          //       case defn.RefinedFunctionOf(emt) =>
+          //         val param1 = amt.paramInfos.head
+          //         val param2 = emt.paramInfos.head
+          //         println(amt)
+          //         println(emt)
+          //         println(param1.captureSet.elems)
+          //         println(param2.captureSet.elems)
+          //   case _ =>
+          // println("=========================")
+
+          err.typeMismatch(tree.withType(actualBoxed), expected1,
+                addApproxAddenda(
+                    addenda ++ errorNotes(fail.errorNotes),
+                    expected1))
           actual
     end checkConformsExpr
 
@@ -1445,7 +1444,6 @@ class CheckCaptures extends Recheck, SymTransformer:
         if defn.isNonRefinedFunction(expected) =>
           actual match
             case defn.RefinedFunctionOf(rinfo: MethodType) =>
-              // println(s"${resultType}")
               val restpe2 = toResultInResults(NoSymbol, report.error(_), mapNonDep = true)(resultType)
               depFun(args, restpe2, isContextual, rinfo.paramNames, true)
             case _ => expected

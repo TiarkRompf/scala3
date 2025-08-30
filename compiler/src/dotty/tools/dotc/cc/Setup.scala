@@ -561,6 +561,9 @@ class Setup extends PreRecheck, SymTransformer, SetupAPI:
         tree.setNuType(
           if sym.hasAnnotation(defn.UncheckedCapturesAnnot) then makeUnchecked(transformed)
           else transformed)
+        // if (sym.name.toString == "comb") then
+        //   println(s"${tree.tpe.show} <- TRANSFORMTT")
+        //   println(s"${tree.nuType.show} <- NUTYPE")
 
     /** Transform the type of a val or var or the result type of a def */
     def transformResultType(tpt: TypeTree, sym: Symbol)(using Context): Unit =
@@ -722,6 +725,10 @@ class Setup extends PreRecheck, SymTransformer, SetupAPI:
                     completeDef(tree, sym, this)
                     sym.info = newInfo
                       .showing(i"new info of $sym = $result", capt)
+                    // if (sym.name.toString == "comb") then
+                    //   println(s"${prevInfo} <- prevInfo")
+                    //   println(s"${tree.tpt.nuType.show}")
+                    //   println(s"${sym.info} <- curInfo")
               else if sym.is(Method) then
                 new LazyType:
                   def complete(denot: SymDenotation)(using Context) =

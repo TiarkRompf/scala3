@@ -54,6 +54,8 @@ import transform.CheckUnused.OriginalName
 import scala.annotation.{unchecked as _, *}
 import dotty.tools.dotc.util.chaining.*
 
+import SigmaOps.*
+
 object Typer {
 
   /** The precedence of bindings which determines which of several bindings will be
@@ -1059,16 +1061,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         case qual               => tryQual(qual)
       else
         val qual = typedExpr(tree.qualifier, shallowSelectionProto(tree.name, pt, this, tree.nameSpan))
-        val fin = typedSelectWithAdapt(tree, pt, qual).withSpan(tree.span).computeNullable()
-        // fin match
-        //   case Select(qual, name @ (nme._1 | nme._2)) =>
-        //     println(fin.show)
-        //     println(qual)
-        //     println(qual.tpe.widenDealias)
-        //     println(fin.tpe)
-        //     println("=================")
-        //   case _ =>
-        fin
+        typedSelectWithAdapt(tree, pt, qual).withSpan(tree.span).computeNullable()
 
     def javaSelection(qual: Tree)(using Context) =
       qual match
@@ -3059,8 +3052,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
   // XXX Purdue
   class CPSException extends Throwable
 
-  class PairAdaptException extends Throwable
-
   // First attempt
   var checkCps = true
   var stmList = List[untpd.Tree]()
@@ -3104,7 +3095,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     }
   }
 
-
   // Second attempt, using typerState
 
   def tryCatchCPS1[T](f: => T)(g: (TermName, untpd.Tree) => T)(using Context): T = {
@@ -3116,6 +3106,9 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
         // println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
         ctx.typerState.flowState = FlowState(stmList, saveCpsCounter)
+        if (stmList.isEmpty) then
+          assert(false, s"stmList is empty, saveStmList = ${saveStmList}")
+        else
         try g(termName(s"sigma${stmList.length-1}"), stmList.last)
         finally {
           ctx.typerState.flowState = FlowState(saveStmList,  saveCpsCounter)
@@ -3370,6 +3363,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     if sym.isOpaqueAlias then
       checkFullyAppliedType(rhs1, "Opaque type alias must be fully applied, but ")
       checkNoContextFunctionType(rhs1)
+    if (sym.owner.derivesFrom(defn.Sigma)) then
+      sym.info match
+        case tp: TypeAlias => tp.isSigmaTypeMember = true
+        case _ =>
     var attachCap = false
     if Feature.ccEnabled then
       val isCap = tdef.hasAttachment(CaptureVar)
@@ -4117,65 +4114,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       else if ctx.run.nn.isCancelled then
         tree.withType(WildcardType)
       else
-        if false && pt.typeSymbol.toString == "trait Sigma"
-        &&
-        tree.isInstanceOf[untpd.New]
-        // {
-        //   tree match
-        //     case b: Block =>
-        //       b.stats.head.isInstanceOf[TypeDef]
-        //     case _ => false
-        // }
-        then
-          println(pt)
-          println(pt.typeMembers.head.symbol)
-          val tre = tree.asInstanceOf[untpd.New]
-          println(tree)
-          // println(tre.tpt.show)
-          val newT = typedTail(tree)
-          println(newT.show)
-          // // val denot1 = pt.typeMembers.head
-          // // val d1info = denot1.info.asInstanceOf[TypeAlias].alias.asInstanceOf[TypeRef]
-          // // // println(ref(d1info))
-          // val denot2 = pt.typeMembers(1)
-          // // val d2info = denot2.info.asInstanceOf[TypeAlias].alias.asInstanceOf[TypeRef]
-          // val d2info = denot2.info
-          // // println(d2info)
-          // // println(ref(d2info))
-          // println(d2info)
-          // println(newT.tpe)
-
-          // val recPt = pt.asInstanceOf[RecType]
-          // val bar = TermRef(recPt.recThis, termName("a"))
-          // val to = newT.tpe
-          // val sigmaTypeSubst = new TypeMap:
-          //   def apply(tp: Type): Type =
-          //     if tp == bar then to
-          //     else mapOver(tp)
-
-          // println(d2info)
-          // println(bar)
-          // val fin = sigmaTypeSubst(d2info)
-          // println(fin)
-
-          // println(inferImplicitArg(fin, tree.span.endPos))
-
-          val bundle = (l: LazyTreeList) => untpd.New(
-            untpd.Template(
-              untpd.DefDef(nme.CONSTRUCTOR, Nil, untpd.TypeTree(), EmptyTree),
-              untpd.Ident(termName("Sigma")) :: Nil,
-              untpd.ValDef(nme.WILDCARD, EmptyTree, EmptyTree),
-              l
-            )
-          )
-
-          // println(untpd.TypeDef(typeName("A"), ref(d1info)).show)
-
-          // bundle {
-          //   untpd.TypeDef(typeName("A"), untpd.Ident)
-          // }
-
-          println("=============")
         adapt2Tail(tree, adapt(typedUnadapted(tree, pt, locked), pt, locked), pt, locked)
     }
 
@@ -4733,6 +4671,11 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         pushCPS(tree2, tree)
 
       case Apply(b, args) if isSigma(tree2.tpe) && !isSigma(pt) =>
+        pushSigma(tree2, tree)
+
+      case Select(qual, name) if isSigma(tree2.tpe) && !isSigma(pt)
+        && qual.tpe.widenDealias.typeSymbol.derivesFrom(defn.TupleClass)
+        && name.isSelectorName =>
         pushSigma(tree2, tree)
 
       // case Apply(b, args) =>
@@ -5359,21 +5302,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           if tree1 ne tree then readapt(tree1)
           else err.typeMismatch(tree, pt, failure)
 
-      // try pt match
-      //   case DependentPair(fst, scd) =>
-      //     return adaptDependentPair(tree, fst, scd, pt)
-      //   case SigmaPair(tp) =>
-      //     return adaptSigma(tree, tp)
-      //   case _ =>
-      //     EmptyTree
-      // catch
-      //   case e: PairAdaptException =>
-      //     EmptyTree
-
       pt match
-        // case DependentPair(fst, scd) =>
-        //   adaptDependentPair(tree, fst, scd, pt)
-        case SigmaPair(tp) =>
+        case SigmaType(tp) =>
           adaptSigma(tree, tp.dealias)
         case _: SelectionProto =>
           tree // adaptations for selections are handled in typedSelect
@@ -5476,46 +5406,21 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       case _ => NoType
 
     /**
-     * @tree Tree to adapt
-     * @fst First type argument of dependent pair
-     * @scd Second type argument of dependent pair
-     * @pt Expected type - should be DependentPair[fst, scd]
-     * If type of tree does not conform to pt then try to use this method.
-     *
-     * Algorithm:
-     * 1. Make a constructor for dependent pair, which is always a typed tree.
-     * 2. directly infer an implicit of type scd
-     * 3. type check the constructor for the dependent pair applied to tree and
-     *    the inferred implicit argument if it exists.
-     */
-    def adaptDependentPair(tree: Tree, fst: Type, scd: Type, pt: Type): Tree =
-      val constrName = getDependentPair.primaryConstructor.asTerm
-      val tycon = getDependentPair.typeRef.typeConstructor
-      val constr = untpd.TypedSplice(tpd.New(tycon).select(TermRef(tycon, constrName)))
-
-      val dcapArg = inferImplicitArg(scd, tree.span.endPos)
-      dcapArg.tpe match
-        case failed: SearchFailureType =>
-          report.error(i"Dependent pair implicit search failed with: $failed",
-          tree.srcPos)
-        case _ =>
-
-      val bundle = untpd.Apply(
-        constr, tree :: untpd.TypedSplice(dcapArg) :: Nil
-      )
-      println(s"${bundle} <- bundle")
-      typedTail(bundle, pt)
-    end adaptDependentPair
-
-    /**
      * @param pt should be dealiased (e.g. stripped of top level annots)
      * Algorithm:
      * 1. Check if tree pt is RecType or not
      * 2. If not, then just summon type of scd and construct it in basic way
      * 3. If is, then do SigmaTypeSubst.
+     *
+     * TODO:
+     * Handle different number of type refinements in expected type.
+     * e.g - Sigma, Sigma { type A = ... }, Sigma { type B = ... }
+     * Fix infinite loop
+     * try
+     * return Sigma, where one of its type members is the wrong type
      */
     def adaptSigma(tree: Tree, pt: Type)(using Context): Tree =
-      assert(isSigma(pt))
+      assert(pt.isSigma)
 
       extension (tp: Type)
         def stripAlias: Type =
@@ -5530,12 +5435,11 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
       val fst =
         val fst = pt.typeMembers.head.info.stripAlias
-        println(s"${fst} <- at adaptSigma")
         fst match
           case tvar: TypeVar =>
-            println(tvar)
-            println(tvar.typeToInstantiateWith)
-            fst
+            // println(tvar)
+            // println(tvar.typeToInstantiateWith)
+            tree.tpe.widen
           case _ => fst
 
       val scd =
@@ -5581,15 +5485,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       // println(bundle)
       typedTail(bundle, pt)
     end adaptSigma
-
-    // if (isDependentPair(pt)) then
-    //   println(s"${tree} <- TREE")
-    //   // println(s"${pt.typeSymbol.primaryConstructor.info.show} <- pt")
-    //   // println(s"${getDependentPair.primaryConstructor.info.show}")
-    //   val DependentPair(tpe1, tpe2) = pt: @unchecked
-    //   val dpRef = getDependentPair.typeRef
-    //   // println(s"${dpRef.argTypes} <- babababaaba")
-    //   println("========================")
 
     tree match {
       case _: MemberDef | _: PackageDef | _: Import | _: WithoutTypeOrPos[?] | _: Closure => tree

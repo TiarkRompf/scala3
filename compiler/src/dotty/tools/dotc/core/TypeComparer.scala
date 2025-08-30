@@ -28,6 +28,8 @@ import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
 import eff.*, CheckEffects.*, KillOps.*
 
+var debugFlag = false
+
 /** Provides methods to compare types.
  */
 class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling, PatternTypeConstrainer {
@@ -536,6 +538,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
 
       case tp1 @ CapturingType(parent1, refs1) if !isEffCheckingOrSetup =>
         def compareCapturing =
+          try
           if tp2.isAny then true
           else if subCaptures(refs1, tp2.captureSet).isOK && sameBoxed(tp1, tp2, refs1)
             || !ctx.mode.is(Mode.CheckBoundsOrSelfType) && tp1.isAlwaysPure
@@ -546,6 +549,14 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
               else tp2
             recur(parent1, tp2a)
           else thirdTry
+          finally {
+            // ()
+            //  if (tp1.typeSymbol.toString == "class File" &&
+            //   tp2.typeSymbol.toString == "class File") then
+            //     println(s"${refs1.elems}")
+            //     println(s"${tp2.captureSet.elems}")
+            //     println("==================")
+          }
         compareCapturing
       case tp1: AnnotatedType if !tp1.isRefining =>
         recur(tp1.parent, tp2)
@@ -860,7 +871,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
             false
         }
         compareTypeBounds
-      case CapturingType(parent2, refs2) =>
+      case CapturingType(parent2, refs2) if !isEffCheckingOrSetup =>
         def compareCapturing: Boolean =
           val refs1 = tp1.captureSet
           try
@@ -878,7 +889,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   recur(tp1.widen, tp2)
                 case _ =>
                   false
-              singletonOK
+              val res = { singletonOK
               || subCaptures(refs1, refs2).isOK
                   && sameBoxed(tp1, tp2, refs1)
                   && (recur(tp1.widen.stripCapturing, parent2)
@@ -886,6 +897,22 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                         // this alternative is needed in case the right hand side is a
                         // capturing type that contains the lhs as an alternative of a union type.
                     )
+              }
+              if !res then
+                // val parent1 = tp1 match
+                //   case CapturingType(parent1, _) => parent1
+                //   case _ => tp1
+
+                // println("===== AT TYPECOMPARER ========")
+                // println(tp1.show)
+                // println(tp2.show)
+                // println(refs1.elems)
+                // println(refs2.elems)
+                // println(subCaptures(refs1, refs2))
+                // println("==================")
+                res
+              else
+                res
           catch case ex: AssertionError =>
             println(i"assertion failed while compare captured $tp1 <:< $tp2")
             throw ex

@@ -24,6 +24,7 @@ import printing.Texts.Text
 import reporting.Message
 import NameOps.isImpureFunction
 import annotation.internal.sharable
+import typer.SigmaOps.*
 
 /** Capabilities are members of capture sets. They partially overlap with types
  *  as shown in the trait hierarchy below.
@@ -387,11 +388,15 @@ object Capabilities:
      *  Symbols representing levels are
      *   - class symbols, but not inner (non-static) module classes
      *   - method symbols, but not accessors or constructors
+     *
+     * Sigma case is because compiler generates a new anonymous class
+     * for each new Sigma, but that is not the real owner since it
+     * should be just pair.
      */
     final def levelOwner(using Context): Symbol =
       def adjust(owner: Symbol): Symbol =
         if !owner.exists
-          || owner.isClass && (!owner.is(Flags.Module) || owner.isStatic)
+          || owner.isClass && (!owner.is(Flags.Module) || owner.isStatic) && !owner.derivesFrom(defn.Sigma)
           || owner.is(Flags.Method, butNot = Flags.Accessor) && !owner.isConstructor
         then owner
         else adjust(owner.owner)
@@ -660,6 +665,9 @@ object Capabilities:
     thisMap =>
 
     override def apply(t: Type) =
+      // if t.isSigma then
+      //   mapFollowingAliases(t)
+      // else
       if variance <= 0 then t
       else t match
         case t @ CapturingType(_, _) =>
@@ -759,8 +767,6 @@ object Capabilities:
         case _ =>
           super.mapOver(t)
 
-    var flip = false
-
     object toVar extends CapMap:
 
       def apply(t: Type) = t match
@@ -782,17 +788,7 @@ object Capabilities:
               case _ =>
             res
           else
-            // special case for Sigma - set to covariant
-            if variance == 0 && typer.isSigma(tp) then
-              flip = true
-              // println(tp.show)
-              // println(mt.show)
-              // println(s"${deep} <- deep")
-              // println(s"${c} <- capability")
-              val res = atVariance(1)(mapCapability(c, deep))
-              // println(s"${res} <- res")
-              res
-            else if variance == 0 then
+            if variance == 0 then
               fail(em"""$tp captures the root capability `cap` in invariant position.
                        |This capability cannot be converted to an existential in the result type of a function.""")
               c
@@ -831,12 +827,7 @@ object Capabilities:
       end inverse
     end toVar
 
-    val res = toVar(tp)
-    if flip then
-      // println(res.resultType)
-      // println("====================================")
-      flip = false
-    res
+    toVar(tp)
   end toResult
 
   /** Map global roots in function results to result roots. Also,
