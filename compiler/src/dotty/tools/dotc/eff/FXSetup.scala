@@ -34,17 +34,22 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   private def updateInfo(sym: Symbol, info: Type)(using Context) =
     sym.updateInfo(thisPhase, info, sym.flags)
 
-  /*
+  /**
   Sets up compilation unit for effect checking
-  1. Gives inferred valdefs and defdefs LazyTypes
-  2. TODO: checks that the kill set of a function is a subset of the function captures set + parameters capture set - this can probably
-  be done by looking at the capturedVars of a DefDef
+  1. Drops all inferred kill annotations
+  2. Gives LazyTypes to symbols relating to method and val definitions in preparation
+     for inference. 
   */
   class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts:
     import checker.*
     import cc.*
     import KillOps.*
 
+    /**
+     * Dead code - was used to check that
+     * explicitly given type annotations with kill effect
+     * must only kill capabilities with non-empty capture sets.
+     */
     def checkExplicitTT(tree: TypeTree)(using Context): Unit =
       val checkTraverser = new TypeTraverser:
         def traverse(tp: Type): Unit = tp match
@@ -83,7 +88,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
             traverseChildren(mt)
           case _ => traverseChildren(tp)
         end traverse
-      // checkTraverser.traverse(tree.tpe)
+      checkTraverser.traverse(tree.tpe)
     end checkExplicitTT
 
     override def transform(tree: Tree)(using Context): Tree =
@@ -92,7 +97,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
           if tree.isInferred then
             tree.withType(tree.tpe.dropAllKill)
           else
-            checkExplicitTT(tree)
+            // checkExplicitTT(tree)
             tree
 
         case tree @ DefDef(name, paramss, tpt, rhs) =>
@@ -100,7 +105,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
           // after postTyper all tpts should be TypeTrees, so should be ok
           // I also want this to fail if its not the case
           val forcedRes = tpt.asInstanceOf[TypeTree]
-          val newTree  = super.transform(tree).asInstanceOf[DefDef]
+          val newTree = super.transform(tree).asInstanceOf[DefDef]
           if forcedRes.isInferred && !sym.isConstructor then sym.info match
             // todo: maybe too powerful?
             // maybe only MethodType and PolyType?

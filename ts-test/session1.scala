@@ -24,7 +24,7 @@ type Dual[P <: Session] <: Session = P match
   case Var[n] => Var[n]
   case End => End
 
-class Chan[E <: Tuple, P <: Session] 
+class Chan[E <: Tuple, P <: Session]
 type EChan[P <: Session] = Chan[EmptyTuple, P]
 type Emp[P <: Session] = P *: EmptyTuple
 
@@ -38,7 +38,7 @@ def loop[T](x: T^)(cond: => Boolean)(body: (y: T^) => (Option[T^]) @kill(y)): Un
 def Som[T](x: T): Option[T] = Some(x)
 
 object Chan:
-  def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^)=
+  def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^) =
     (new Chan[EmptyTuple, P], new Chan[EmptyTuple, Dual[P]])
 
   extension [E <: Tuple, P <: Session](chan: Chan[E, Rec[P]]^)
@@ -136,9 +136,9 @@ object EchoClient:
 
 object Main:
   def echo_test() =
-    val (server, client) = Chan[EchoServer]()
-    EchoServer(server)
-    EchoClient(client)
+    val (serverChan, clientChan) = Chan[EchoServer]()
+    EchoServer(serverChan)
+    EchoClient(clientChan)
 
 /*
 type AtmDeposit = Recv[Int, Send[Int, Var[Z]]]

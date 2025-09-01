@@ -60,7 +60,7 @@ object Main:
   import Lock.*
   import Table.*
 
-  def example1(): Unit =
+  def example1(): Double =
     val table = Table(40)
     table.lock()
     val row = table.compute_and_get_row(10)
@@ -68,19 +68,19 @@ object Main:
     val data = table.compute_on_row(row)
     row.release()
     // row.release()
-    table.compute_on_row(row)
+    // table.compute_on_row(row)
     table.release()
     data
 
-  // def example2() =
-  //   val table = Table(40)
-  //   table.lock()
-  //   val row = table.compute_and_get_row(10)
-  //   row.lock()
-  //   val data = table.compute_on_row(row)
-  //   table.release() // release table first!
-  //   row.release()
-  //   data
+  def example2() =
+    val table = Table(40)
+    table.lock()
+    val row = table.compute_and_get_row(10)
+    row.lock()
+    val data = table.compute_on_row(row)
+    table.release() // release table first!
+    row.release()
+    data
 
 
 

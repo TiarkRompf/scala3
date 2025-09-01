@@ -2884,6 +2884,29 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
         NoType
     case tp1: AnnotatedType if !tp1.isRefining =>
       lub(tp1.underlying, tp2, isSoft = isSoft)
+    /**
+     * Note - this is really a hack and not the correct method to do lub.
+     * This is because lub is better done via constraint solving - e.g. the capture
+     * checker checks an If by checking the then branch with an unsolved
+     * expected type, and then populating it with the correct capture sets
+     * via subtyping of the actual type of a branch - the actual lub'd type is
+     * not really used. 
+     */
+    case tp1 @ FunctionOrMethod(argTypes1, resType1) if isEffCheckingOrSetup =>
+      tp2 match
+        case tp2 @ FunctionOrMethod(argTypes2, resType2) =>
+          if (argTypes1.length != argTypes2.length) then NoType
+          else
+            tp1.derivedFunctionOrMethod(
+              argTypes1.zip(argTypes2).foldRight(Nil) { case ((arg1, arg2), args) =>
+                glb(arg1, arg2) :: args
+              },
+              KillType(
+                lub(resType1.dropTopLevelKill, resType2.dropTopLevelKill),
+                resType1.getKilled.killUnion(resType2.getKilled)
+              )
+            )
+        case _ => NoType
     case _ =>
       NoType
   }

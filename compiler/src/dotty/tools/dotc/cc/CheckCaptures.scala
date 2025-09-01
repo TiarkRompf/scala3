@@ -1362,7 +1362,9 @@ class CheckCaptures extends Recheck, SymTransformer:
      * Tuple2.apply[Unit, box(File^)](..., file)
      * Then file's type is a TermRef, and its underlying type is CapturingType(...)
      * But checkConforms will return the underlying type, meaning the nuType of the Ident(file)
-     * will be set to CapturingType(), not TermRef, which is very bad for killed capabilities.
+     * will be set to CapturingType(), not TermRef, which is very bad since then
+     * the information that type is a reference to `file` is lost, and so
+     * problematic for tracking killed capabilities.
      *
      * It is also impossible to retrieve the TermRef from the symbol since the symbol is dependent
      * on the tree's type.

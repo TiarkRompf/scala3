@@ -79,6 +79,20 @@ object KillOps:
         case _ => false
 
   /**
+   * trees1 is a kill set -
+   * For trees1, trees2 where KillType(_, trees1), KillType(_, trees2)
+   * return trees1 | trees2
+   */
+  extension (trees1: List[Tree])
+    def killUnion(trees2: List[Tree])(using Context): List[Tree] =
+      val res: collection.mutable.ListBuffer[Tree] = new collection.mutable.ListBuffer[Tree]()
+      for tree <- trees1 do
+        if !res.exists(tree.tpe == _.tpe) then res += tree
+      for tree <- trees2 do
+        if !res.exists(tree.tpe == _.tpe) then res += tree
+      res.toList
+
+  /**
    * Given KillType(..., refs),
    * returns (whether refs has self ref, refs without self ref)
    */
@@ -99,7 +113,7 @@ object KillOps:
    *
    * We do NOT want the default avoidance behavior for the kill annotation because what will happen is by
    * default, avoidance replaces local TermRefs with their types, but then the problem is that replaced type
-   * is not a capability!
+   * is not a capability.
    *
    * The case for applied types is mainly because of how refined types work
    * A refined function is something like RefinedType(AppliedType(), apply, MethodType(...))
@@ -200,6 +214,9 @@ object KillOps:
    * 5. Kill annotation can only appear in (NOT YET CHECKED! TODO!)
    *  a) At top-level of explicit DefDef tpt
    *  b) As result type of a MethodType (e.g. A => B @kill(...) => C) should not be allowed
+   *
+   * Note for 5 - it is unclear whether this should be actulaly prevented or just do nothing
+   * (current behavior is do nothing since effect checker naturally does not handle such case.)
    */
   def checkWellformed(annot: Tree)(using Context): Unit =
     val killedElems = annot.killedElems
