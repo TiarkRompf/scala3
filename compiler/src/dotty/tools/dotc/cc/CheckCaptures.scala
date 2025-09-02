@@ -1459,7 +1459,7 @@ class CheckCaptures extends Recheck, SymTransformer:
               *  refined function type here, and so should be transformed like one.
               */
               val restpe2 = toResultInResults(NoSymbol, report.error(_), mapNonDep = true)(resultType)
-              depFun(args, restpe2, isContextual, rinfo.paramNames, true)
+              depFun(args, restpe2, isContextual, rinfo.paramNames)
             case _ => expected
         case expected @ defn.RefinedFunctionOf(einfo: MethodType)
         if einfo.allParamNamesSynthetic =>

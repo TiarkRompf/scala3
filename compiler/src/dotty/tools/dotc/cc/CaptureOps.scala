@@ -31,8 +31,7 @@ def isCaptureCheckingOrSetup(using Context): Boolean =
 /** A dependent function type with given arguments and result type
  *  TODO Move somewhere else where we treat all function type related ops together.
  */
-def depFun(args: List[Type], resultType: Type, isContextual: Boolean, paramNames: List[TermName] = Nil,
-  adaptResultCap: Boolean = false)(using Context): Type =
+def depFun(args: List[Type], resultType: Type, isContextual: Boolean, paramNames: List[TermName] = Nil)(using Context): Type =
   val make = MethodType.companion(isContextual = isContextual)
   val mt =
     if paramNames.length == args.length then make(paramNames, args, resultType)
