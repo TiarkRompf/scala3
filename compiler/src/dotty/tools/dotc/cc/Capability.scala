@@ -389,9 +389,9 @@ object Capabilities:
      *   - class symbols, but not inner (non-static) module classes
      *   - method symbols, but not accessors or constructors
      *
-     * Sigma case is because compiler generates a new anonymous class
-     * for each new Sigma, but that is not the real owner since it
-     * should be just pair.
+     * Case for Sigma is because each new Sigma will generate an anonymous class,
+     * which means that the owner will be set to that anonymous class. However, this
+     * shouldn't be the real owner as the Sigma should be treated as a Pair.
      */
     final def levelOwner(using Context): Symbol =
       def adjust(owner: Symbol): Symbol =
@@ -551,10 +551,9 @@ object Capabilities:
           val result = y match
             case y: ResultCap => vs.unify(x, y)
             case _ => y.derivesFromSharedCapability
-          // if !result then
-          //   ccState.addNote(CaptureSet.ExistentialSubsumesFailure(x, y))
-          // result
-          result || canAddHidden
+          if !result then
+            ccState.addNote(CaptureSet.ExistentialSubsumesFailure(x, y))
+          result
         case GlobalCap =>
           y match
             case GlobalCap => true
@@ -665,9 +664,6 @@ object Capabilities:
     thisMap =>
 
     override def apply(t: Type) =
-      // if t.isSigma then
-      //   mapFollowingAliases(t)
-      // else
       if variance <= 0 then t
       else t match
         case t @ CapturingType(_, _) =>
@@ -791,10 +787,8 @@ object Capabilities:
             if variance == 0 then
               fail(em"""$tp captures the root capability `cap` in invariant position.
                        |This capability cannot be converted to an existential in the result type of a function.""")
-              c
-            else
-              // we accept variance < 0, and leave the cap as it is
-              c
+            // we accept variance < 0, and leave the cap as it is
+            c
         case _ =>
           super.mapCapability(c, deep)
 
@@ -832,6 +826,8 @@ object Capabilities:
 
   /** Map global roots in function results to result roots. Also,
    *  map roots in the types of parameterless def methods.
+   *
+   *  @param mapNonDep see comment in alignDependentFunction in CheckCaptures.scala
    */
   def toResultInResults(sym: Symbol, fail: Message => Unit, keepAliases: Boolean = false,
     mapNonDep: Boolean = false)(tp: Type)(using Context): Type =
@@ -842,24 +838,16 @@ object Capabilities:
           if mt1 ne mt then mt1.toFunctionType(alwaysDependent = true)
           else parent
         case t @ defn.FunctionNOf(args, resultType, isContextual) if mapNonDep =>
-          // val t1 = mapOver(t).asInstanceOf[AppliedType]
-          // val targs = t1.args
           val methodType = if isContextual then ContextualMethodType else MethodType
           val mt = apply(methodType(args, resultType))
-          // val mt = methodType(targs.init, targs.last)
-          // val restpe = toResult(t1.args.last, mt, fail)
-          // t1.derivedAppliedType(t1.tycon, targs.init :+ restpe)
           mt.toFunctionType(alwaysDependent = true)
         case defn.RefinedFunctionOf(mt) =>
           val mt1 = apply(mt)
           if mt1 ne mt then mt1.toFunctionType(alwaysDependent = true)
           else t
-        // problem - (Int) => Sigma ... is AppliedType(Function1, Int, Sigma) not MethodType
         case t: MethodType if variance > 0 && t.marksExistentialScope =>
           val t1 = mapOver(t).asInstanceOf[MethodType]
           t1.derivedLambdaType(resType = toResult(t1.resType, t1, fail))
-        // basically mapping over Sigma { type A = ... type B = File^ } deconstructs to
-        // this case for AnnotatedType(File, GlobalCap), causing it to fail
         case CapturingType(parent, refs) =>
           t.derivedCapturingType(this(parent), refs)
         case t: (LazyRef | TypeVar) =>

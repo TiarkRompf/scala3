@@ -656,8 +656,7 @@ class CheckCaptures extends Recheck, SymTransformer:
         if pathRef.derivesFromMutable && pt.isValueType && !pt.isMutableType then
           pathRef = pathRef.readOnly
         markFree(sym, pathRef, tree)
-      val fin = mapResultRoots(super.recheckIdent(tree, pt), tree.symbol)
-      fin
+      mapResultRoots(super.recheckIdent(tree, pt), tree.symbol)
 
     /** The expected type for the qualifier of a selection. If the selection
      *  could be part of a capability path or is a a read-only method, we return
@@ -1429,9 +1428,9 @@ class CheckCaptures extends Recheck, SymTransformer:
           // println("=========================")
 
           err.typeMismatch(tree.withType(actualBoxed), expected1,
-                addApproxAddenda(
-                    addenda ++ errorNotes(fail.errorNotes),
-                    expected1))
+              addApproxAddenda(
+                  addenda ++ errorNotes(fail.errorNotes),
+                  expected1))
           actual
     end checkConformsExpr
 
@@ -1446,6 +1445,19 @@ class CheckCaptures extends Recheck, SymTransformer:
         if defn.isNonRefinedFunction(expected) =>
           actual match
             case defn.RefinedFunctionOf(rinfo: MethodType) =>
+              /*
+              *  Note: restpe2 is important for aligning dependent functions
+              *  for type comparison. Consider (n: Int) => File^ <: Int => File^
+              *  The rhs is Function1.apply[Int, File^], which must be adapted into a dependent function type.
+              *  However, since the rhs was originally non-dependent, the ^ in its result type does not
+              *  become an existential ResultCap, as only dependent function types have their result types
+              *  transformed to have existential capabilties. Then, comparing the lhs to rhs results in failure
+              *  since the ResultCap on the lhs does not conform to either the FreshCap or the GlobalCap on the rhs.
+              *
+              *  This is a fix for this, as we will make the cap in the result type of
+              *  Int => File^ to be a ResultCap, as we are essentially treating it as a
+              *  refined function type here, and so should be transformed like one.
+              */
               val restpe2 = toResultInResults(NoSymbol, report.error(_), mapNonDep = true)(resultType)
               depFun(args, restpe2, isContextual, rinfo.paramNames, true)
             case _ => expected

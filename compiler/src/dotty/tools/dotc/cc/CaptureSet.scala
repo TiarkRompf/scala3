@@ -244,9 +244,6 @@ sealed abstract class CaptureSet extends Showable:
     else
       result.levelError.foreach(ccState.addNote)
       varState.rollBack()
-      // println(this)
-      // println(that)
-      // println("===========")
       result
       //.showing(i"subcaptures $this <:< $that = ${result.show}", capt)
 
@@ -632,22 +629,15 @@ object CaptureSet:
       find(false, binder)
 
     private def levelOK(elem: Capability)(using Context): Boolean = elem match
-      case c: FreshCap =>
+      case _: FreshCap =>
         !level.isDefined
         || ccState.symLevel(elem.ccOwner) <= level
         || {
-          // println(s"${level} <- this.level") // 2
-          // println(s"${ccState.symLevel(elem.ccOwner)} <- level of cap to add.") // 3
-          // println(owner.info.show)
-          // println(elem.ccOwner)
-          // println(this)
-          // println(elem)
-          // println(s"LEVEL ERROR ${c.show} cannot be included in $this of $owner")
-          // println("==================")
+          capt.println(i"LEVEL ERROR $elem cannot be included in $this of $owner")
           false
         }
       case elem @ ResultCap(binder) =>
-        (rootLimit == null && (this.isInstanceOf[BiMapped] || isPartOf(binder.resType)) )
+        rootLimit == null && (this.isInstanceOf[BiMapped] || isPartOf(binder.resType))
       case GlobalCap =>
         rootLimit == null
       case elem: TermRef if level.isDefined =>

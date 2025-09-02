@@ -309,7 +309,7 @@ object SeqFactory {
   class Delegate[CC[A] <: SeqOps[A, Seq, Seq[A]]](delegate: SeqFactory[CC]) extends SeqFactory[CC] {
     override def apply[A](elems: A*): CC[A] = delegate.apply(elems: _*)
     def empty[A]: CC[A] = delegate.empty
-    def from[E](it: IterableOnce[E]^): CC[E] = delegate.from(it)
+    def from[E](it: IterableOnce[E]^): CC[E]^{it} = delegate.from(it)
     def newBuilder[A]: Builder[A, CC[A]] = delegate.newBuilder[A]
   }
 

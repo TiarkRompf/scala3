@@ -30,17 +30,6 @@ def isCaptureCheckingOrSetup(using Context): Boolean =
 
 /** A dependent function type with given arguments and result type
  *  TODO Move somewhere else where we treat all function type related ops together.
- *
- *  @param makeResult this is important for aligning dependent functions
- *  for type comparison. Consider (n: Int) => File^ <: Int => File^
- *  The rhs is Function1.apply[Int, File^], which must be adapted into a dependent function type.
- *  However, since the rhs was originally non-dependent, the ^ in its result type does not
- *  become an existential ResultCap. Then, comparing the lhs to rhs results in failure
- *  since the ResultCap on the lhs does not conform to either the FreshCap or the GlobalCap on the rhs.
- *
- *  Therefore, if this flag is true, then we make the cap in the result type of rhs a ResultCap, since we are
- *  essentially viewing Int => File^ as a dependent function type, meaning its result type should also
- *  be transformed in a similar way.
  */
 def depFun(args: List[Type], resultType: Type, isContextual: Boolean, paramNames: List[TermName] = Nil,
   adaptResultCap: Boolean = false)(using Context): Type =
@@ -48,9 +37,6 @@ def depFun(args: List[Type], resultType: Type, isContextual: Boolean, paramNames
   val mt =
     if paramNames.length == args.length then make(paramNames, args, resultType)
     else make(args, resultType)
-  // val mt2 = if !adaptResultCap then mt else
-  //   toResultInResults(NoSymbol, report.error(_), true)(mt)
-  // mt2.toFunctionType(alwaysDependent = true)
   mt.toFunctionType(alwaysDependent = true)
 
 /** An exception thrown if a @retains argument is not syntactically a Capability */
