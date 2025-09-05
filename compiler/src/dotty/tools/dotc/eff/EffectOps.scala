@@ -78,6 +78,11 @@ object KillOps:
         case KillType(_) => true
         case _ => false
 
+    // def derivedKillType(parent: Type, refs: List[Tree])(using Context): Type = tp match
+    //   case tp @ KillType(p, r) =>
+    //     if (parent eq p) && (refs eq r) then tp
+    //     else KillType(parent, refs)
+
   /**
    * trees1 is a kill set -
    * For trees1, trees2 where KillType(_, trees1), KillType(_, trees2)
@@ -236,6 +241,19 @@ object KillOps:
           case _ =>
             report.error(i"Killed variable ${elem} is not a capability!", annot.srcPos)
   end checkWellformed
+
+  def checkNoSelfRef(tp: Type)(using Context): Boolean =
+    var noSelfRef = true
+    val checkNoSelfRef = new TypeTraverser:
+      def traverse(tp: Type): Unit = tp match
+        case KillType(parent, refs) =>
+          if refs.exists(_.symbol.isFuncSelfRef) then
+            noSelfRef = false
+          else traverse(parent)
+        case _ =>
+          traverseChildren(tp)
+    checkNoSelfRef.traverse(tp)
+    noSelfRef
 end KillOps
 
 object EffectType:

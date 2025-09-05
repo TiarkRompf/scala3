@@ -121,3 +121,7 @@ There were two major modifications to the compiler:
 In addition, the capture checker was also modified for better support
 of higher-order functions, and `Sigma` types.
 Examples are found in the `ts-test/` folder.
+
+Running tests can be done by starting an `sbt` shell and then
+invoking `testCompilation captures` for capture checking tests,
+as well as `testCompilation typestate` for typestate tests.

@@ -3021,13 +3021,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           case e: EmptyTree[?] => e
           case _ =>
             tpt2 = tpt2.withType(res.tpe.widen)
-            println(tpt2)
-            // println(name)
-            // println(tpt2.tpe)
-            // println(s"${sym.info} <- SYM INFO BEFORE")
-            // println(rhs.show)
             sym.info = res.tpe.widen
-            println("==================")
         res
       case rhs =>
         excludeDeferredGiven(rhs, sym):

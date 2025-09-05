@@ -38,7 +38,10 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   Sets up compilation unit for effect checking
   1. Drops all inferred kill annotations
   2. Gives LazyTypes to symbols relating to method and val definitions in preparation
-     for inference. 
+     for inference.
+
+    TODO - handle inline methods properly, right now we just
+    drop all kill annotations from inline methods.
   */
   class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts:
     import checker.*
@@ -105,8 +108,22 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
           // after postTyper all tpts should be TypeTrees, so should be ok
           // I also want this to fail if its not the case
           val forcedRes = tpt.asInstanceOf[TypeTree]
-          val newTree = super.transform(tree).asInstanceOf[DefDef]
-          if forcedRes.isInferred && !sym.isConstructor then sym.info match
+          // the isEmpty case shouldn't matter
+          val shouldNotCheckRhs = tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
+
+          val newTree =
+            if shouldNotCheckRhs then
+              if forcedRes.isInferred then
+                sym.info match
+                  case fntpe @ FunctionOrMethod(params, resType) =>
+                    val newInfo = fntpe.derivedFunctionOrMethod(params, resType.dropAllKill)
+                    updateInfo(sym, newInfo)
+                  case _ =>
+              cpy.DefDef(tree)(tpt = transform(forcedRes))
+            else
+              super.transform(tree).asInstanceOf[DefDef]
+
+          if !shouldNotCheckRhs && forcedRes.isInferred && !sym.isConstructor then sym.info match
             // todo: maybe too powerful?
             // maybe only MethodType and PolyType?
             case fntpe @ FunctionOrMethod(params, resType) =>

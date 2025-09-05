@@ -861,15 +861,36 @@ class CheckEffects extends Recheck:
       replaceSelfRef(tp)
     end saturate
 
+    /**
+     * In order to saturate to work properly, we have to work with
+     * widened types, e.g. if x: () ->{...} ... @kill(FUN), then
+     * x will have type TermRef(...), and we need to widen it to obtain
+     * the underlying function type.
+     *
+     * However, doing type comparison with widened types is not correct.
+     * c.f. "tests/pos-custom-args/captures/i16116.scala".
+     *
+     * So if type comparison fails with widened types,
+     * we try again with the non-widened versions if the actual type
+     * does not contain any function self-refs we try again. This condition
+     * is necessary because the type comparison removes function self refs
+     * from killed sets, hence the actual set may be smaller than expected,
+     * and so could be unsound (capture checking would account for this,
+     * so it is just a safety measure).
+     */
     override def checkConformsExpr(actual: Type, expected: Type, tree: Tree, addenda: Addenda)(using Context): Type =
-      val actual1 = saturate(actual.widen)  // the widen hopefully shouldn't do anything bad.
+      val actual1 = saturate(actual.widen)
       val expected1 = saturate(expected.widen)
 
-      if !(actual eq expected) && !(isCompatible(actual1, expected1)) then
-        // report.error(
-        //   i"conforms failed for \n ${tree} \n Actual: ${actual.dropAllNotKill} \n Expected: ${expected.dropAllNotKill}"
-        // )
-        err.typeMismatch(tree.withType(actual), expected, addenda)
+      if !(isCompatible(actual1, expected1)) then
+        if checkNoSelfRef(actual1) then
+          if !(isCompatible(actual, expected)) then
+          // report.error(
+          //   i"conforms failed for \n ${tree} \n Actual: ${actual.dropAllNotKill} \n Expected: ${expected.dropAllNotKill}"
+          // )
+            err.typeMismatch(tree.withType(actual), expected, addenda)
+        else
+          err.typeMismatch(tree.withType(actual), expected, addenda)
       actual
     end checkConformsExpr
 
