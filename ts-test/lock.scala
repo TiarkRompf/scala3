@@ -10,14 +10,14 @@ trait Lock:
 
 object Lock:
   extension (lock: Lock)
-    def lock()(using c: lock.IsReleased^): (Unit `Pair` (lock.IsHeld^)) @kill(c) =
+    def lock(): lock.IsReleased >> lock.IsHeld =
       new Sigma:
         type A = Unit
         type B = lock.IsHeld^
         val a = ()
         val b = ().asInstanceOf[lock.IsHeld^]
 
-    def release()(using c: lock.IsHeld^): (Unit `Pair` (lock.IsReleased^)) @kill(c) =
+    def release(): lock.IsHeld >> lock.IsReleased  =
       new Sigma:
         type A = Unit
         type B = lock.IsReleased^

@@ -1,4 +1,5 @@
 import language.experimental.captureChecking
+import caps.cap
 import typestate.*
 
 trait Elem(val name: String)
@@ -18,16 +19,17 @@ class DOM:
 object DOM:
   extension (tree: DOM)
     // find way to avoid elem term parameter?
-    def open[E <: Elem, L <: TList](elem: E)(using ts: tree.Nodes[L]^): (IBox[tree.Nodes[E :: L]^]) @kill(ts) =
+    def open[E <: Elem, L <: TList](elem: E): tree.Nodes[L] >> tree.Nodes[E :: L] =
       ???
 
-    def close[E <: Elem, L <: TList](elem: E)(using ts: tree.Nodes[E :: L]^): (IBox[tree.Nodes[L]^]) @kill(ts) =
+    def close[E <: Elem, L <: TList](elem: E): tree.Nodes[E :: L] >> tree.Nodes[L] =
       ???
 
     def add[E <: Elem, L <: TList](elem: E, s: String)(using ts: tree.Nodes[E :: L]^): Unit =
       ???
 
-  def mkDom(body: (tree: DOM) => (ts: tree.Nodes[TNil]^) => (`IBox`[tree.Nodes[TNil]^]^) @kill(ts)): Unit =
+  def mkDom(body: (tree: DOM) => (ts: tree.Nodes[TNil]^) =>
+      (Sigma { type A = Unit; type B = tree.Nodes[TNil]^{ts, cap} }^{ts, cap}) @kill(ts)): Unit =
     val dom = new DOM:
       type Nodes[TNil] = Unit
     body(dom)(())
@@ -37,8 +39,7 @@ object Main:
 
   def test1() =
     mkDom { tree => ts =>
-      implicit val a = ts
-      tree.open(HTML())
+      tree.open(HTML())(using ts)
       tree.open(HEAD())
       tree.add(HEAD(), "a")
       tree.open(P())
@@ -48,3 +49,9 @@ object Main:
       tree.close(HEAD())
       tree.close(HTML())
     }
+
+  // def test2() =
+  //   mkDom { tree => ts =>
+  //     implicit val a = ts
+  //     tree.open(HTML()) // fail
+  //   }

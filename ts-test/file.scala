@@ -18,14 +18,14 @@ object File:
       val b: f.IsClosed^ = ()
 
   extension (f: File)
-    def open()(using c: f.IsClosed^): (Unit `Pair` (f.IsOpen^)) @kill(c) =
+    def open(): f.IsClosed >> f.IsOpen =
       new Sigma:
         type A = Unit
         type B = f.IsOpen^
         val a = ()
         val b: f.IsOpen^ = ().asInstanceOf[f.IsOpen]
 
-    def close()(using c: f.IsOpen^): (Unit `Pair` (f.IsClosed^)) @kill(c) =
+    def close(): f.IsOpen >> f.IsClosed =
       new Sigma:
         type A = Unit
         type B = f.IsClosed^
@@ -36,17 +36,18 @@ object File:
 
     def write(s: String)(using f.IsOpen^): Unit = ()
 
-  def withFile[T](name: String)(body: (f: File) => (c: f.IsClosed^) => (`Pair`[T, f.IsClosed^]^) @kill(c)): T =
+  def withFile[T](name: String)(body: (f: File) => (c: f.IsClosed^) =>
+    (Sigma { type A = T; type B = f.IsClosed^}^) @kill(c)): T =
     val f = new File(name):
       type IsClosed = Unit
       type IsOpen = Unit
-    ((body(f)(())) : `Pair`[T, f.IsClosed^]^).a
+    ((body(f)(())) : Sigma { type A = T; type B = f.IsClosed^}^).a
 
-  def withFileM(name: String)(body: (f: File) => (c: f.IsClosed^) => ((`Pair`[Unit, f.IsClosed^])^) @kill(c)): Unit =
-    val f = new File(name):
-      type IsClosed = Unit
-      type IsOpen = Unit
-    body(f)(())
+  // def withFileM(name: String)(body: (f: File) => (c: f.IsClosed^) => ((`Pair`[Unit, f.IsClosed^])^) @kill(c)): Unit =
+  //   val f = new File(name):
+  //     type IsClosed = Unit
+  //     type IsOpen = Unit
+  //   body(f)(())
 
 object Main:
   import File.*
@@ -65,6 +66,15 @@ object Main:
     for msg <- messages do
       f.write(msg)
     f.close()
+
+  // def test3(messages: Array[String]) =
+  //   val f = File("b.txt")
+  //   f.open()
+  //   var i = 0
+  //   while (i < messages.length) do
+  //     f.write(messages(i))
+  //     f.close()
+  //   f.close()
 
   def test4() =
     val text = withFile("a.txt") { (f) => (c) =>

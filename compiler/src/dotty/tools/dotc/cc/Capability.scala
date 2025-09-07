@@ -136,13 +136,16 @@ object Capabilities:
    *  @param origin  an indication where and why the FreshCap was created, used
    *                 for diagnostics
    */
-  case class FreshCap private (owner: Symbol, origin: Origin)(using @constructorOnly ctx: Context) extends RootCapability:
+  case class FreshCap private (owner: Symbol, origin: Origin)(using ctx: Context) extends RootCapability:
     val hiddenSet = CaptureSet.HiddenSet(owner)
     hiddenSet.owningCap = this
 
     override def equals(that: Any) = that match
       case that: FreshCap => this eq that
       case _ => false
+
+    override def toString(): String =
+      s"FreshCap(${owner.show}, ${origin.explanation})"
 
   object FreshCap:
     def apply(origin: Origin)(using Context): FreshCap | GlobalCap.type =

@@ -6884,7 +6884,8 @@ object Types extends TypeUtils {
         (this(x, parent) /: refs.elems): (x, elem) =>
           this(x, elem.coreType)
 
-      // case Sigma2Type(tp1, tp2) => // TODO
+      case Sigma2Type(tp1, tp2) =>
+        this((this(x, tp1)), tp2)
 
       case AnnotatedType(underlying, annot) =>
         this(applyToAnnot(x, annot), underlying)

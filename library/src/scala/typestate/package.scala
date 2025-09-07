@@ -1,7 +1,7 @@
 package scala
 package typestate
 
-import annotation.{experimental, StaticAnnotation, retainsArg}
+import annotation.{experimental, StaticAnnotation, retainsCap}
 
 /**
   * Annotation that indicates killed set of references.
@@ -26,20 +26,41 @@ trait Sigma:
   val a: A
   val b: B
 
+/**
+  * def ..(): B1 ?<= A1
+  * returns B1 implicitly and A1 explicitly
+  */
 @experimental
-type `Pair`[A1, B1] = Sigma { type A = A1; type B = B1 }
+infix type ?<=[B1, A1] = Sigma { type A = A1; type B = B1 }
 
+/**
+  * State transition alias, abstracts common pattern for
+  * transitioning between path-dependent types signifying states.
+  *
+  * Function that takes in c: S1^ implicitly and
+  * returns S2^ implicitly, killing c.
+  *
+  * TODO: maybe add a targetName annotation?
+  * https://docs.scala-lang.org/scala3/reference/other-new-features/targetName.html
+  */
 @experimental
-type IBox[T] = Sigma { type A = Unit; type B = T }
+type >>[S1, S2] = (c: S1 @retainsCap()) ?=> (Sigma {type A = Unit; type B = S2 @retainsCap()}) @kill(c)
 
-@experimental
-object Sigma:
-  def apply[A1, B1](a1: A1, b1: B1): `Pair`[A1, B1] =
-    new Sigma:
-      type A = A1
-      type B = B1
-      val a = a1
-      val b = b1
+
+// @experimental
+// type `Pair`[A1, B1] = Sigma { type A = A1; type B = B1 }
+
+// @experimental
+// type IBox[T] = Sigma { type A = Unit; type B = T }
+
+// @experimental
+// object Sigma:
+//   def apply[A1, B1](a1: A1, b1: B1): `Pair`[A1, B1] =
+//     new Sigma:
+//       type A = A1
+//       type B = B1
+//       val a = a1
+//       val b = b1
 
 // /**
 //   * Annotation which stops ANF transformation if annotated on

@@ -2102,8 +2102,8 @@ class Definitions {
   @tu lazy val KillAnnot: ClassSymbol = requiredClass("scala.typestate.kill")
   @tu lazy val FuncSelfRef: TermSymbol = TypestateModule.requiredValue("FUN")
   @tu lazy val Sigma: ClassSymbol = requiredClass("scala.typestate.Sigma")
-  @tu lazy val TSPair: TypeSymbol = TypestateModule.moduleClass.requiredType("Pair".toTypeName)
-  @tu lazy val IBox: TypeSymbol = TypestateModule.moduleClass.requiredType("IBox".toTypeName)
+  @tu lazy val ImplicitRet: TypeSymbol = TypestateModule.moduleClass.requiredType("?<=".toTypeName)
+  @tu lazy val StateTransition: TypeSymbol = TypestateModule.moduleClass.requiredType(">>".toTypeName)
 
   /** Experimental definitions that can nevertheless be accessed from a stable
    *  compiler if capture checking is enabled.
@@ -2117,7 +2117,7 @@ class Definitions {
     CapsUnsafeModule, CapsUnsafeModule.moduleClass,
     CapsInternalModule, CapsInternalModule.moduleClass,
     RetainsAnnot, RetainsCapAnnot, RetainsByNameAnnot,
-    TypestateModule, KillAnnot, FuncSelfRef, Sigma, TSPair, IBox)
+    TypestateModule, KillAnnot, FuncSelfRef, Sigma, ImplicitRet, StateTransition)
 
   /** Experimental language features defined in `scala.runtime.stdLibPatches.language.experimental`.
    *

@@ -89,11 +89,11 @@ object Typer {
   /** Tree adaptation lost fidelity; this attachment preserves the original tree. */
   val AdaptedTree = new Property.StickyKey[tpd.Tree]
 
-  /** Tree has alread been ANF transformed */
-  val ANFTransformed = new Property.Key[Unit]
-
   /** An attachment on a Select node with an `apply` field indicating that the `apply`
    *  was inserted by the Typer.
+   *
+   *  Also used to signify that an ANF transform does not need to happen on a
+   *  specific tree.
    */
   private val InsertedApply = new Property.Key[Unit]
 
@@ -2986,7 +2986,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           case e: EmptyTree[?] => true
           case _ => false
 
-        val original = rhs.hasAttachment(ANFTransformed)
+        val original = rhs.hasAttachment(InsertedApply)
 
         val shouldTryTransform =
           sym.exists && !sym.isOneOf(Module | Param) &&
@@ -3145,7 +3145,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
    * @param initTree: untpd.Tree of tree before being typed.
    *
    * This is necessary because we do not want to propagate the
-   * ANFTransformed attachment to the original tree, since
+   * InsertedApply attachment to the original tree, since
    * otherwise the "old cps" expression would never be transformed in the
    * body of the flatMap.
    *
@@ -3180,18 +3180,18 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     // println(s"${initTree} <- INITTREE")
     // println(s"===============================")
 
-    val flag = tree.hasAttachment(ANFTransformed) ||
-      initTree.hasAttachment(ANFTransformed)
+    val flag = tree.hasAttachment(InsertedApply) ||
+      initTree.hasAttachment(InsertedApply)
     if (!ctx.isTyper || flag) return tree
 
     val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = (ctx.typerState.flowState : @unchecked)
     if (cpsCounter >= stmList.length) {
       // println("found new cps expression "+cpsCounter+" "+tree.show)
-      val hygienicTree = untpd.TypedSplice(tree).withAttachment(ANFTransformed, ())
+      val hygienicTree = untpd.TypedSplice(tree).withAttachment(InsertedApply, ())
       // val t = if tree eq initTree then
-      //   freshApplyNode(tree).withAttachment(ANFTransformed, ())
+      //   freshApplyNode(tree).withAttachment(InsertedApply, ())
       // else
-      //   tree.withAttachment(ANFTransformed, ())
+      //   tree.withAttachment(InsertedApply, ())
       ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     } else {
@@ -3207,14 +3207,14 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     (stmList, cpsCounter)
 
   def pushSigma(tree: tpd.Tree, initTree: untpd.Tree)(using Context): Tree =
-    val flag = tree.hasAttachment(ANFTransformed) ||
-      initTree.hasAttachment(ANFTransformed)
+    val flag = tree.hasAttachment(InsertedApply) ||
+      initTree.hasAttachment(InsertedApply)
     if (!ctx.isTyper || flag) return tree
 
     val (stmList, cpsCounter) = getFlowState
     if cpsCounter >= stmList.length then
       // println("found new sigma "+cpsCounter+" "+tree.show)
-      val hygienicTree = untpd.TypedSplice(tree).withAttachment(ANFTransformed, ())
+      val hygienicTree = untpd.TypedSplice(tree).withAttachment(InsertedApply, ())
       ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     else
@@ -4672,15 +4672,6 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         && name.isSelectorName =>
         pushSigma(tree2, tree)
 
-      // case Apply(b, args) =>
-      //   if (ctx.isTyper) && tree2.show.contains("open") then
-      //     println(tree2.show)
-      //     println(tree2.tpe.dealias)
-      //     println(tree2.tpe.typeSymbol)
-      //     println(isSigma(tree2.tpe))
-      //     println("===================")
-      //   tree2
-
       case _ =>
         tree2
     }
@@ -5415,20 +5406,13 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
      */
     def adaptSigma(tree: Tree, pt: Type)(using Context): Tree =
       assert(pt.isSigma)
-
-      extension (tp: Type)
-        def stripAlias: Type =
-          tp match
-            case TypeAlias(alias) => alias
-            case tp => tp
-
       def memberToTree(tpe: Type): Tree =
         tpe match
           case tp: NamedType => ref(tp)
           case _ => TypeTree(tpe, true)
 
       val fst =
-        val fst = pt.typeMembers.head.info.stripAlias
+        val fst = pt.typeMembers.head.info.dropAlias
         fst match
           case tvar: TypeVar =>
             // println(tvar)
@@ -5437,7 +5421,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           case _ => fst
 
       val scd =
-        val scd = pt.typeMembers.last.info.stripAlias
+        val scd = pt.typeMembers.last.info.dropAlias
         pt match
         case pt: RecType =>
           if !fst.isSingleton then

@@ -26,7 +26,9 @@ import cc.*
 import Capabilities.*
 import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
+
 import eff.*, CheckEffects.*, KillOps.*
+import typer.SigmaOps.markSigmaMembers
 
 var debugFlag = false
 
@@ -536,9 +538,14 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
 
         res
 
+      /**
+       * Note: we check this case only if it is not in the effect checking/setup since
+       * the capture sets are already solved during the capture checker. In addition,
+       * the CapturingType(...) unwrapper is only available during the capture checker/effect
+       * checker, so this restricts it to being only in the capture checker.
+       */
       case tp1 @ CapturingType(parent1, refs1) if !isEffCheckingOrSetup =>
         def compareCapturing =
-          try
           if tp2.isAny then true
           else if subCaptures(refs1, tp2.captureSet).isOK && sameBoxed(tp1, tp2, refs1)
             || !ctx.mode.is(Mode.CheckBoundsOrSelfType) && tp1.isAlwaysPure
@@ -549,14 +556,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
               else tp2
             recur(parent1, tp2a)
           else thirdTry
-          finally {
-            // ()
-            //  if (tp1.typeSymbol.toString == "class File" &&
-            //   tp2.typeSymbol.toString == "class File") then
-            //     println(s"${refs1.elems}")
-            //     println(s"${tp2.captureSet.elems}")
-            //     println("==================")
-          }
         compareCapturing
       case tp1: AnnotatedType if !tp1.isRefining =>
         recur(tp1.parent, tp2)
@@ -725,6 +724,8 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
             else
               compareRefinedSlow || fourthTry
           else // fast path, in particular for refinements resulting from parameterization.
+            tp2.markSigmaMembers
+            tp1w.markSigmaMembers
             isSubRefinements(tp1w.asInstanceOf[RefinedType], tp2, skipped2) &&
             recur(tp1, skipped2)
         end compareRefined
@@ -870,7 +871,13 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           case _ =>
             false
         }
-        compareTypeBounds
+
+        tp2 match
+          case tp2: TypeAlias if tp2.isSigmaTypeMember => tp1 match
+            case tp1: TypeAlias if tp1.isSigmaTypeMember =>
+              isSubType(tp1.dropAlias, tp2.dropAlias)
+            case _ => compareTypeBounds
+          case _ => compareTypeBounds
       case CapturingType(parent2, refs2) if !isEffCheckingOrSetup =>
         def compareCapturing: Boolean =
           val refs1 = tp1.captureSet
@@ -904,10 +911,13 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                 //   case _ => tp1
 
                 // println("===== AT TYPECOMPARER ========")
-                // println(tp1.show)
-                // println(tp2.show)
-                // println(refs1.elems)
-                // println(refs2.elems)
+                // // println(tp1.show)
+                // // println(tp2.show)
+                // // println(refs1.elems)
+                // // println(refs2.elems)
+                // val list1 = refs1.elems.iterator.toList
+                // println(refs1.show)
+                // println(refs2.show)
                 // println(subCaptures(refs1, refs2))
                 // println("==================")
                 res
@@ -2890,7 +2900,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
      * checker checks an If by checking the then branch with an unsolved
      * expected type, and then populating it with the correct capture sets
      * via subtyping of the actual type of a branch - the actual lub'd type is
-     * not really used. 
+     * not really used.
      */
     case tp1 @ FunctionOrMethod(argTypes1, resType1) if isEffCheckingOrSetup =>
       tp2 match

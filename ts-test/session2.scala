@@ -4,7 +4,7 @@ import language.experimental.captureChecking
 import caps.*
 import typestate.*
 import scala.annotation.tailrec
-import scala.compiletime.ops.int.*
+import scala.compiletime.ops.int.S
 
 trait Session
 class Send[T, P <: Session] extends Session
@@ -51,25 +51,25 @@ object Chan:
     )
 
   extension (chan: Chan)
-    def rec_push[E <: Tuple, P <: Session]()(using c: chan.CS[E, Rec[P]]^): (`Pair`[Unit, chan.CS[P *: E, P]^]) @kill(c) =
+    def rec_push[E <: Tuple, P <: Session](): chan.CS[E, Rec[P]] >> chan.CS[P *: E, P] =
       ??? // c.asInstanceOf[chan.CS[P *: E, P]]
 
-    def rec_top[E <: Tuple, P <: Session]()(using c: chan.CS[P *: E, Var[0]]^): (`Pair`[Unit, chan.CS[P *: E, P]^]) @kill(c) =
+    def rec_top[E <: Tuple, P <: Session](): chan.CS[P *: E, Var[0]] >> chan.CS[P *: E, P] =
       ??? // c.asInstanceOf[chan.CS[(P, E), P]]
 
-    def rec_pop[E <: Tuple, P <: Session, N <: Int]()(using c: chan.CS[P *: E, Var[S[N]]]^): (`Pair`[Unit, chan.CS[E, Var[N]]^]) @kill(c) =
+    def rec_pop[E <: Tuple, P <: Session, N <: Int](): chan.CS[P *: E, Var[S[N]]] >> chan.CS[E, Var[N]] =
       ??? // c.asInstanceOf[chan.CS[E, Var[N]]]
 
-    def send[T, E <: Tuple, P <: Session](x: T)(using c: chan.CS[E, Send[T, P]]^): (`Pair`[Unit, chan.CS[E, P]^]) @kill(c) =
+    def send[T, E <: Tuple, P <: Session](x: T): chan.CS[E, Send[T, P]] >> chan.CS[E, P] =
       ??? // c.asInstanceOf[chan.CS[E, P]]
 
-    def recv[T, E <: Tuple, P <: Session]()(using c: chan.CS[E, Recv[T, P]]^): `Pair`[T, chan.CS[E, P]^] @kill(c) =
+    def recv[T, E <: Tuple, P <: Session]()(using c: chan.CS[E, Recv[T, P]]^): ((chan.CS[E, P]^) ?<= T) @kill(c) =
       ??? // (c.asInstanceOf[chan.CS[E, P]], 0.asInstanceOf[T])
 
-    def left[E <: Tuple, L <: Session, R <: Session]()(using c: chan.CS[E, Select[L, R]]^): (`Pair`[Unit, chan.CS[E, L]^]) @kill(c) =
+    def left[E <: Tuple, L <: Session, R <: Session](): chan.CS[E, Select[L, R]] >> chan.CS[E, L] =
       ??? // c.asInstanceOf[chan.CS[E, L]]
 
-    def right[E <: Tuple, L <: Session, R <: Session]()(using c: chan.CS[E, Select[L, R]]^): (`Pair`[Unit, chan.CS[E, R]^]) @kill(c) =
+    def right[E <: Tuple, L <: Session, R <: Session](): chan.CS[E, Select[L, R]] >> chan.CS[E, R] =
       ??? // c.asInstanceOf[chan.CS[E, R]]
 
     def branch[E <: Tuple, L <: Session, R <: Session, T](using c: chan.CS[E, Branch[L, R]]^)
@@ -122,12 +122,13 @@ object EchoServer:
 object EchoClient:
   def readLine(): String = ???
 
-  def apply(chan: Chan): chan.withProtocol[EmptyTuple, EchoClient, Unit] =
+  def apply(chan: Chan): chan.withProtocol[EmptyTuple, EchoClient, Unit] = 
     chan.rec_push()
 
     def recur(chan: Chan): chan.withProtocol[EchoCInner *: EmptyTuple, EchoCInner, Unit] =
       val msg = readLine()
       chan.send(msg)
+      // chan.send(msg)
       val goAgain = readLine()
       if (goAgain == "???") then
         chan.left()

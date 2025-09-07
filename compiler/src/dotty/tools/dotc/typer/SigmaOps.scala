@@ -17,7 +17,7 @@ object SigmaOps:
       || {
         tp.dealias match
           case AppliedType(tycon: TypeRef, _) => // hack for type Pair
-            tycon.symbol == defn.TSPair ||
+            tycon.symbol == defn.ImplicitRet ||
             tycon.underlying.typeSymbol == defn.Sigma
           case _ => false
       }
@@ -26,6 +26,32 @@ object SigmaOps:
       case tp @ Sigma2Type(fst, scd) =>
         if (tp1 eq fst) && (tp2 eq scd) then tp
         else Sigma2Type(tp1, tp2)
+
+    def getFstAlias(using Context): Option[TypeAlias] = tp match
+      case RefinedType(RefinedType(tref, A, fstAlias: TypeAlias), B, _: TypeAlias) if tref.isSigma =>
+        Some(fstAlias)
+      case _ => None
+
+    def getScdAlias(using Context): Option[TypeAlias] = tp match
+      case RefinedType(RefinedType(tref, A, _: TypeAlias), B, scdAlias: TypeAlias) if tref.isSigma =>
+        Some(scdAlias)
+      case _ => None
+
+    /**
+     * Given tp, mark each type member of a Sigma Type as
+     * a sigma type member. This is useful since we
+     * need to treat these as covariant instead of invariant.
+     */
+    def markSigmaMembers(using Context) =
+      val marker = new TypeTraverser:
+        def traverse(tp: Type): Unit = tp match
+          case tp @ Sigma2Type(fst, scd) =>
+            traverse(fst)
+            traverse(scd)
+            tp.getFstAlias.foreach(_.isSigmaTypeMember = true)
+            tp.getScdAlias.foreach(_.isSigmaTypeMember = true)
+          case _ => traverseChildren(tp)
+      marker.traverse(tp)
 
   // Generic Sigma unwrapper
   object SigmaType:
@@ -36,9 +62,8 @@ object SigmaOps:
   // Sigma { type A = ... ; type B = ... }
   object Sigma2Type:
     def unapply(tp: Type)(using Context): Option[(Type, Type)] = tp match
-      case RefinedType(RefinedType(tref, A, TypeAlias(tp1)),
-          B, TypeAlias(tp2)) if isSigma(tref) =>
-            Some(tp1, tp2)
+      case RefinedType(RefinedType(tref, A, TypeAlias(tp1)), B, TypeAlias(tp2)) if tref.isSigma =>
+        Some(tp1, tp2)
       case _ => None
 
     def apply(tp1: Type, tp2: Type)(using Context): Type =

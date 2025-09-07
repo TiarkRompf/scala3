@@ -26,6 +26,8 @@ import reporting.{trace, Message, OverrideError}
 import Annotations.Annotation
 import Capabilities.*
 
+import typer.SigmaOps.*
+
 /** The capture checker */
 object CheckCaptures:
   import ast.tpd.*
@@ -1376,15 +1378,30 @@ class CheckCaptures extends Recheck, SymTransformer:
       actualBoxed
 
     /**
-     * Method created solely for debugging purposes
+     * Methods for debugging only:
      */
-    def dropAllAnnots(tpe: Type)(using Context) =
-      val tm = new TypeMap:
-        def apply(tp: Type) =
-          tp match
-            case AnnotatedType(parent, _) => apply(parent)
-            case _ => mapOver(tp)
-      tm(tpe)
+    // def dropAllAnnots(tpe: Type)(using Context) =
+    //   val tm = new TypeMap:
+    //     def apply(tp: Type) =
+    //       tp match
+    //         case AnnotatedType(parent, _) => apply(parent)
+    //         case _ => mapOver(tp)
+    //   tm(tpe)
+
+    // def getToBottom(tp: Type)(using Context): Unit =
+    //   tp.stripCapturing match
+    //     case defn.RefinedFunctionOf(mt1) =>
+    //       mt1.resultType.stripCapturing match
+    //         case defn.RefinedFunctionOf(mt2) =>
+    //           mt2.resultType.stripCapturing match
+    //             case typer.SigmaOps.Sigma2Type(_, scd) =>
+    //               println("GET TO BOTTOM =================")
+    //               println(scd.show)
+    //               println(scd.captureSet.elems)
+    //               println("==========================")
+    //             case _ =>
+    //         case _ =>
+    //     case _ =>
 
     /** Massage `actual` and `expected` types before checking conformance.
      *  Massaging is done by the methods following this one:
@@ -1402,6 +1419,9 @@ class CheckCaptures extends Recheck, SymTransformer:
         // Only `addOuterRefs` when there is no box adaptation
         expected1 = addOuterRefs(expected1, actual, tree.srcPos)
 
+      actualBoxed.markSigmaMembers
+      expected1.markSigmaMembers
+
       ccState.testOK(isCompatible(actualBoxed, expected1)) match
         case CompareResult.OK =>
           if debugSuccesses then tree match
@@ -1412,18 +1432,25 @@ class CheckCaptures extends Recheck, SymTransformer:
         case fail: CompareFailure =>
           // report.error(i"conforms failed for \n ${tree} \n Actual: $actual \n Expected: $expected",
           //   tree.srcPos)
-          // println(actualBoxed)
-          // println(expected1)
           // actualBoxed.stripCapturing match
           //   case defn.RefinedFunctionOf(amt) =>
           //     expected1.stripCapturing match
           //       case defn.RefinedFunctionOf(emt) =>
-          //         val param1 = amt.paramInfos.head
-          //         val param2 = emt.paramInfos.head
-          //         println(amt)
-          //         println(emt)
-          //         println(param1.captureSet.elems)
-          //         println(param2.captureSet.elems)
+          //         amt.resType.stripCapturing match
+          //           case defn.RefinedFunctionOf(art) =>
+          //             emt.resType.stripCapturing match
+          //               case defn.RefinedFunctionOf(ert) =>
+          //                 art.resultType.stripCapturing match
+          //                   case tp1 @ typer.SigmaOps.Sigma2Type(_, ascd) =>
+          //                     ert.resultType.stripCapturing match
+          //                       case tp2 @ typer.SigmaOps.Sigma2Type(_, escd) =>
+          //                         tp1.getScdAlias.foreach(a => println(a.show))
+          //                         tp2.getScdAlias.foreach(a => println(a.show))
+          //                         tp1.getScdAlias.foreach(a => println(a.isSigmaTypeMember))
+          //                         tp2.getScdAlias.foreach(a => println(a.isSigmaTypeMember))
+          //                       case _ =>
+          //                   case _ =>
+          //           case _ =>
           //   case _ =>
           // println("=========================")
 
