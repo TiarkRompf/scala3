@@ -1,5 +1,5 @@
 // Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
-// Iteration 2 - each channel has an associated path-dependent capability parameterized by the channel CSate.
+// Iteration 2 - each channel has an associated path-dependent capability parameterized by the channel PCapate.
 import language.experimental.captureChecking
 import caps.*
 import typestate.*
@@ -25,72 +25,72 @@ type Dual[P <: Session] <: Session = P match
   case End => End
 
 class Chan:
-  type CS[E <: Tuple, P <: Session] // CS for channel session
-  type ES[P <: Session] = this.CS[EmptyTuple, P]
-  type withProtocol[E <: Tuple, P <: Session, T] = (c: this.CS[E, P]^) ?=> (T) @kill(c)
-  type withEProtocol[P <: Session, T] = (c: this.CS[EmptyTuple, P]^) ?=> (T) @kill(c)
+  type PCap[E <: Tuple, P <: Session] // PCap for channel session
+  type ES[P <: Session] = this.PCap[EmptyTuple, P]
+  type withProtocol[E <: Tuple, P <: Session, T] = (c: this.PCap[E, P]^) ?=> (T) @kill(c)
+  type withEProtocol[P <: Session, T] = (c: this.PCap[EmptyTuple, P]^) ?=> (T) @kill(c)
   private var _isOpen = true
   def isOpen = _isOpen
 
 object Chan:
   def apply[P <: Session]():
-    ( Sigma {type A = Chan; type B = a.CS[EmptyTuple, P]^ },
-      Sigma {type A = Chan; type B = a.CS[EmptyTuple, Dual[P]]^ }) =
+    ( Sigma {type A = Chan; type B = a.PCap[EmptyTuple, P]^ },
+      Sigma {type A = Chan; type B = a.PCap[EmptyTuple, Dual[P]]^ }) =
     val c1 = new Chan
     val c2 = new Chan
     ( new Sigma:
         type A = Chan
-        type B = a.CS[EmptyTuple, P]^
+        type B = a.PCap[EmptyTuple, P]^
         val a: c1.type = c1
-        val b: c1.CS[EmptyTuple, P]^ = ().asInstanceOf[c1.CS[EmptyTuple, P]],
+        val b: c1.PCap[EmptyTuple, P]^ = ().asInstanceOf[c1.PCap[EmptyTuple, P]],
       new Sigma:
         type A = Chan
-        type B = a.CS[EmptyTuple, Dual[P]]^
+        type B = a.PCap[EmptyTuple, Dual[P]]^
         val a: c2.type = c2
-        val b: c2.CS[EmptyTuple, Dual[P]]^ = ().asInstanceOf[c2.CS[EmptyTuple, Dual[P]]]
-    )
+        val b: c2.PCap[EmptyTuple, Dual[P]]^ = ().asInstanceOf[c2.PCap[EmptyTuple, Dual[P]]]
+    )true
 
   extension (chan: Chan)
-    def rec_push[E <: Tuple, P <: Session](): chan.CS[E, Rec[P]] >> chan.CS[P *: E, P] =
-      ??? // c.asInstanceOf[chan.CS[P *: E, P]]
+    def rec_push[E <: Tuple, P <: Session](): chan.PCap[E, Rec[P]] >> chan.PCap[P *: E, P] =
+      ??? // c.asInstanceOf[chan.PCap[P *: E, P]]
 
-    def rec_top[E <: Tuple, P <: Session](): chan.CS[P *: E, Var[0]] >> chan.CS[P *: E, P] =
-      ??? // c.asInstanceOf[chan.CS[(P, E), P]]
+    def rec_top[E <: Tuple, P <: Session](): chan.PCap[P *: E, Var[0]] >> chan.PCap[P *: E, P] =
+      ??? // c.asInstanceOf[chan.PCap[(P, E), P]]
 
-    def rec_pop[E <: Tuple, P <: Session, N <: Int](): chan.CS[P *: E, Var[S[N]]] >> chan.CS[E, Var[N]] =
-      ??? // c.asInstanceOf[chan.CS[E, Var[N]]]
+    def rec_pop[E <: Tuple, P <: Session, N <: Int](): chan.PCap[P *: E, Var[S[N]]] >> chan.PCap[E, Var[N]] =
+      ??? // c.asInstanceOf[chan.PCap[E, Var[N]]]
 
-    def send[T, E <: Tuple, P <: Session](x: T): chan.CS[E, Send[T, P]] >> chan.CS[E, P] =
-      ??? // c.asInstanceOf[chan.CS[E, P]]
+    def send[T, E <: Tuple, P <: Session](x: T): chan.PCap[E, Send[T, P]] >> chan.PCap[E, P] =
+      ??? // c.asInstanceOf[chan.PCap[E, P]]
 
-    def recv[T, E <: Tuple, P <: Session]()(using c: chan.CS[E, Recv[T, P]]^): ((chan.CS[E, P]^) ?<= T) @kill(c) =
-      ??? // (c.asInstanceOf[chan.CS[E, P]], 0.asInstanceOf[T])
+    def recv[T, E <: Tuple, P <: Session](): (c: chan.PCap[E, Recv[T, P]]^) ?=> ((chan.PCap[E, P]^) ?<= T) @kill(c) =
+      ??? // (c.asInstanceOf[chan.PCap[E, P]], 0.asInstanceOf[T])
 
-    def left[E <: Tuple, L <: Session, R <: Session](): chan.CS[E, Select[L, R]] >> chan.CS[E, L] =
-      ??? // c.asInstanceOf[chan.CS[E, L]]
+    def left[E <: Tuple, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] >> chan.PCap[E, L] =
+      ??? // c.asInstanceOf[chan.PCap[E, L]]
 
-    def right[E <: Tuple, L <: Session, R <: Session](): chan.CS[E, Select[L, R]] >> chan.CS[E, R] =
-      ??? // c.asInstanceOf[chan.CS[E, R]]
+    def right[E <: Tuple, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] >> chan.PCap[E, R] =
+      ??? // c.asInstanceOf[chan.PCap[E, R]]
 
-    def branch[E <: Tuple, L <: Session, R <: Session, T](using c: chan.CS[E, Branch[L, R]]^)
-      (l: (cl: chan.CS[E, L]^) ?=> T @kill(cl))(r: (cr: chan.CS[E, R]^) ?=> T @kill(cr)): (T) @kill(c) =
+    def branch[E <: Tuple, L <: Session, R <: Session, T](using c: chan.PCap[E, Branch[L, R]]^)
+      (l: (cl: chan.PCap[E, L]^) ?=> T @kill(cl))(r: (cr: chan.PCap[E, R]^) ?=> T @kill(cr)): (T) @kill(c) =
       if ??? then
-        l(using c.asInstanceOf[chan.CS[E, L]])
+        l(using c.asInstanceOf[chan.PCap[E, L]])
       else
-        r(using c.asInstanceOf[chan.CS[E, R]])
+        r(using c.asInstanceOf[chan.PCap[E, R]])
 
-    // def branch2[E <: Tuple, L <: Session, R <: Session](using c: chan.CS[E, Branch[L, R]]^)
-    //   [T](l: chan.CS[E, L]^ ?=> T^)(r: chan.CS[E, R]^ ?=> T^): (T^) @kill(c) =
+    // def branch2[E <: Tuple, L <: Session, R <: Session](using c: chan.PCap[E, Branch[L, R]]^)
+    //   [T](l: chan.PCap[E, L]^ ?=> T^)(r: chan.PCap[E, R]^ ?=> T^): (T^) @kill(c) =
     //   if ??? then
-    //     l(using c.asInstanceOf[chan.CS[E, L]])
+    //     l(using c.asInstanceOf[chan.PCap[E, L]])
     //   else
-    //     r(using c.asInstanceOf[chan.CS[E, R]])
+    //     r(using c.asInstanceOf[chan.PCap[E, R]])
 
-    def close[E <: Tuple]()(using c: chan.CS[E, End]^): Unit =
+    def close[E <: Tuple]()(using c: chan.PCap[E, End]^): Unit =
       chan._isOpen = false
 
-    def loop[E <: Tuple, P <: Session](using c: chan.CS[E, P]^)(cond: => Boolean)
-    (body: (k: chan.CS[E, P]^) ?=> Option[chan.CS[E, P]^] @kill(k)): Unit @kill(c) =
+    def loop[E <: Tuple, P <: Session](using c: chan.PCap[E, P]^)(cond: => Boolean)
+    (body: (k: chan.PCap[E, P]^) ?=> Option[chan.PCap[E, P]^] @kill(k)): Unit @kill(c) =
       if cond then
         body(using c) match
           case Some(c) =>
@@ -122,7 +122,7 @@ object EchoServer:
 object EchoClient:
   def readLine(): String = ???
 
-  def apply(chan: Chan): chan.withProtocol[EmptyTuple, EchoClient, Unit] = 
+  def apply(chan: Chan): chan.withProtocol[EmptyTuple, EchoClient, Unit] =
     chan.rec_push()
 
     def recur(chan: Chan): chan.withProtocol[EchoCInner *: EmptyTuple, EchoCInner, Unit] =
@@ -146,7 +146,7 @@ object Main:
     EchoServer(serverChan)
     EchoClient(clientChan)
 
-  // def badApply(chan: Chan, c: chan.CS[Unit, EchoServer]^) =
+  // def badApply(chan: Chan, c: chan.PCap[Unit, EchoServer]^) =
   //   var cInner = chan.rec_push(c)
   //   var isOpen = true
 
@@ -164,7 +164,7 @@ object Main:
   // end badApply
 
 // object EchoClient:
-//   def readLine(): CSring = "something"
+//   def readLine(): PCapring = "something"
 
 //   def apply(c: Chan[Unit, EchoClient]^) =
 //     val c2 = c.rec_push()
