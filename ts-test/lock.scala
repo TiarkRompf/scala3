@@ -54,7 +54,7 @@ object Table:
         val a = ()
         val b = ().asInstanceOf[table.IsReleased^]
 
-    def locate_row(n: Int)(using c: table.IsHeld^):
+    def locateRow(n: Int)(using c: table.IsHeld^):
       Sigma { type A = table.Row; type B = a.IsReleased^ } =
       val row = new table.Row(n):
         type IsHeld = Unit
@@ -66,14 +66,12 @@ object Table:
         val b: a.IsReleased^ = ()
       }
 
-    def lock_row(row: table.Row)(using c: table.IsHeld^): row.IsReleased >> row.IsHeld =
+    def lockRow(row: table.Row)(using c: table.IsHeld^): row.IsReleased >> row.IsHeld =
       new Sigma:
         type A = Unit
         type B = row.IsHeld^
         val a = ()
         val b = ().asInstanceOf[row.IsHeld^]
-
-    def compute_on_row(row: table.Row)(using c: row.IsHeld^): Double = 5.0
 
   extension (row: Table#Row)
       def unlock(): row.IsHeld >> row.IsReleased =
@@ -83,27 +81,29 @@ object Table:
           val a = ()
           val b = ().asInstanceOf[row.IsReleased^]
 
+  def computeOnRow(row: Table#Row)(using c: row.IsHeld^): Double = 5.0
+
 object Main:
   import Table.*
 
   def example1() =
     val table = Table(40)
     table.lock()
-    val row = table.locate_row(5)
-    table.lock_row(row)
-    val result = table.compute_on_row(row)
+    val row = table.locateRow(5)
+    table.lockRow(row)
+    val result = computeOnRow(row)
     row.unlock()
     result
 
   def example2() =
     val table = Table(40)
     table.lock()
-    val row = table.locate_row(5)
-    table.lock_row(row)
+    val row = table.locateRow(5)
+    table.lockRow(row)
     table.unlock() // unlock table first
-    val result = table.compute_on_row(row)
+    val result = computeOnRow(row)
     row.unlock()
-    // table.lock_row(row) // error
+    // table.lockRow(row) // error
     result
 
   def example3() =
@@ -112,12 +112,12 @@ object Main:
 
     table1.lock()
     table2.lock()
-    val row1 = table1.locate_row(10)
-    table1.lock_row(row1)
-    val row2 = table2.locate_row(50)
-    // val bad = table2.compute_on_row(row1)
-    table2.lock_row(row2)
-    val data = table2.compute_on_row(row2)
+    val row1 = table1.locateRow(10)
+    table1.lockRow(row1)
+    val row2 = table2.locateRow(50)
+    // table2.lockRow(row1) // error
+    table2.lockRow(row2)
+    val data = computeOnRow(row2)
 
   // def example2() =
   //   val table = Table(40)
