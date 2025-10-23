@@ -141,10 +141,13 @@ object Main:
     EchoClient(clientChan)
 
 /*
-type AtmDeposit = Recv[Int, Send[Int, Var[Z]]]
-type AtmWithdraw = Recv[Int, Choose[Var[Z], Var[Z]]]
-type AtmInner = Offer[AtmDeposit, Offer[AtmWithdraw, Close]]
-type Atm = Recv[String, Choose[Rec[AtmInner], Close]]
+type AtmDeposit = Recv[Int, Send[Int, Var[0]]]
+type AtmWithdraw = Recv[Int, Select[Var[0], Var[0]]]
+type AtmInner = Branch[AtmDeposit, Branch[AtmWithdraw, End]]
+type Atm = Recv[String, Select[Rec[AtmInner], End]]
+
+type Client = Dual[Atm]
+type ClientInner = Dual[AtmInner]
 
 object Atm:
   private def approved(id: String) = true
@@ -174,23 +177,23 @@ object Atm:
                 c.close()
       end recur
       recur(c2)
-      var isOpen = true
-      while (isOpen) do // not nice
-        c.offer() match
-          case Left(c1) =>
-            val (c2, amt) = c1.recv()
-            c = c2.send(updateBal(amt)).rec_top()
-          case Right(c1) =>
-            c1.offer() match
-              case Left(c1) =>
-                val (c2, amt) = c1.recv()
-                if (amt <= 10) then
-                  c = c2.left().rec_top()
-                else
-                  c = c2.right().rec_top()
-              case Right(c1) =>
-                c1.close()
-                isOpen = false
+      // var isOpen = true
+      // while (isOpen) do // not nice
+      //   c.offer() match
+      //     case Left(c1) =>
+      //       val (c2, amt) = c1.recv()
+      //       c = c2.send(updateBal(amt)).rec_top()
+      //     case Right(c1) =>
+      //       c1.offer() match
+      //         case Left(c1) =>
+      //           val (c2, amt) = c1.recv()
+      //           if (amt <= 10) then
+      //             c = c2.left().rec_top()
+      //           else
+      //             c = c2.right().rec_top()
+      //         case Right(c1) =>
+      //           c1.close()
+      //           isOpen = false
 
 type AtmClient = Dual[Atm]
 type AtmClientInner = Dual[AtmInner]
@@ -207,11 +210,11 @@ object AtmClient:
     val (c3, new_bal) = c2.left().send(100).recv()
     println(s"New Balance: ${new_bal}")
     c3.rec_top().right().right().close()
-*/
 
-// object Main:
-//   // import AtmClient.clientDeposit
-//   // def atm_test() =
-//   //   val (atm_chan, client_chan) = Chan[Atm]() // create new channels
-//   //   Atm(atm_chan) // start atm server
-//   //   clientDeposit(client_chan) // start a client
+object Main:
+  // import AtmClient.clientDeposit
+  // def atm_test() =
+  //   val (atm_chan, client_chan) = Chan[Atm]() // create new channels
+  //   Atm(atm_chan) // start atm server
+  //   clientDeposit(client_chan) // start a client
+*/

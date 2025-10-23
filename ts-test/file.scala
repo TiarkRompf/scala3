@@ -18,30 +18,33 @@ object File:
       val b: f.IsClosed^ = ()
 
   extension (f: File)
-    def open(): f.IsClosed >> f.IsOpen =
-      new Sigma:
-        type A = Unit
-        type B = f.IsOpen^
-        val a = ()
-        val b: f.IsOpen^ = ().asInstanceOf[f.IsOpen]
+    def open(): f.IsClosed ?=!>? f.IsOpen =
+      Sigma((), ().asInstanceOf[f.IsOpen])
+      // new Sigma:
+      //   type A = Unit
+      //   type B = f.IsOpen^
+      //   val a = ()
+      //   val b: f.IsOpen^ = ().asInstanceOf[f.IsOpen]
 
-    def close(): f.IsOpen >> f.IsClosed =
-      new Sigma:
-        type A = Unit
-        type B = f.IsClosed^
-        val a = ()
-        val b: f.IsClosed^ = ().asInstanceOf[f.IsClosed]
+    def close(): f.IsOpen ?=!>? f.IsClosed =
+      Sigma((), ().asInstanceOf[f.IsClosed])
 
-    def read()(using f.IsOpen^): String = ""
+    def read(): f.IsOpen^ ?=> String = ""
 
-    def write(s: String)(using f.IsOpen^): Unit = ()
+    def write(s: String): f.IsOpen^ ?=> Unit = ()
 
-  def withFile[T](name: String)(body: (f: File) => (c: f.IsClosed^) =>
-    (Sigma { type A = T; type B = f.IsClosed^}^) @kill(c)): T =
+  def withFile[T](name: String)(body: (f: File) => (f.IsClosed^) =!> (f.IsClosed^) ?<= T): T =
     val f = new File(name):
       type IsClosed = Unit
       type IsOpen = Unit
-    ((body(f)(())) : Sigma { type A = T; type B = f.IsClosed^}^).a
+    ((body(f)(())) : ((f.IsClosed^) ?<= T)).a
+
+  // def withFile[T](name: String)(body: (f: File) => (c: f.IsClosed^) =>
+  //   (Sigma { type A = T; type B = f.IsClosed^}^) @kill(c)): T =
+  //   val f = new File(name):
+  //     type IsClosed = Unit
+  //     type IsOpen = Unit
+  //   ((body(f)(())) : Sigma { type A = T; type B = f.IsClosed^}^).a
 
   // def withFileM(name: String)(body: (f: File) => (c: f.IsClosed^) => ((`Pair`[Unit, f.IsClosed^])^) @kill(c)): Unit =
   //   val f = new File(name):
@@ -84,6 +87,22 @@ object Main:
       f.close()
       msg
     }
+
+  // def test5() =
+  //   withFile("a.txt") { (f) => (c) =>
+  //     {
+  //       f.open()(using c)
+  //     }
+  //     // if ??? then
+  //     //   val j = 2938
+  //     //   f.open()(using c)
+  //     // else
+  //     //   val f = 123
+  //     //   f.open()(using c)
+
+  //     f.write("asdf")
+  //     f.close()
+  //   }
 
   // def test4b() =
   //   withFile("a.txt") { (f) => (c) =>

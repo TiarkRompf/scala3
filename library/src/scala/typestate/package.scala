@@ -8,7 +8,7 @@ import annotation.{experimental, StaticAnnotation, retainsCap}
   * @param xs killed set of references
   */
 @experimental
-class kill(xs: Any*) extends annotation.StaticAnnotation
+final class kill(xs: Any*) extends annotation.StaticAnnotation
 
 /**
   * Function self reference.
@@ -31,7 +31,15 @@ trait Sigma:
   * returns B1 implicitly and A1 explicitly
   */
 @experimental
-infix type ?<=[B1, A1] = Sigma { type A = A1; type B = B1 }
+infix type ?<=[B1, A1] = (Sigma { type A = A1; type B = B1 }) @retainsCap()
+
+@experimental
+def Sigma[A1, B1](a1: A1, b1: B1): Sigma { type A = A1; type B = B1 } =
+  new Sigma:
+    type A = A1
+    type B = B1
+    val a: A1 = a1
+    val b: B1 = b1
 
 /**
   * State transition alias, abstracts common pattern for
@@ -44,23 +52,13 @@ infix type ?<=[B1, A1] = Sigma { type A = A1; type B = B1 }
   * https://docs.scala-lang.org/scala3/reference/other-new-features/targetName.html
   */
 @experimental
-type >>[S1, S2] = (c: S1 @retainsCap()) ?=> (Sigma {type A = Unit; type B = S2 @retainsCap()}) @kill(c)
+infix type =!>[T, U] = (c: T) => (U) @kill(c)
 
+@experimental
+infix type ?=!>[T, U] = (c: T) ?=> (U) @kill(c)
 
-// @experimental
-// type `Pair`[A1, B1] = Sigma { type A = A1; type B = B1 }
-
-// @experimental
-// type IBox[T] = Sigma { type A = Unit; type B = T }
-
-// @experimental
-// object Sigma:
-//   def apply[A1, B1](a1: A1, b1: B1): `Pair`[A1, B1] =
-//     new Sigma:
-//       type A = A1
-//       type B = B1
-//       val a = a1
-//       val b = b1
+@experimental
+infix type ?=!>?[S1, S2] = (c: S1 @retainsCap()) ?=> (Sigma {type A = Unit; type B = S2 @retainsCap()}) @kill(c)
 
 // /**
 //   * Annotation which stops ANF transformation if annotated on

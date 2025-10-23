@@ -40,51 +40,38 @@ object Table:
   end apply
 
   extension (table: Table)
-    def lock(): table.IsReleased >> table.IsHeld =
-      new Sigma:
-        type A = Unit
-        type B = table.IsHeld^
-        val a = ()
-        val b = ().asInstanceOf[table.IsHeld^]
+    def lock(): table.IsReleased ?=!>? table.IsHeld =
+      Sigma((), ().asInstanceOf[table.IsHeld])
 
-    def unlock(): table.IsHeld >> table.IsReleased =
-      new Sigma:
-        type A = Unit
-        type B = table.IsReleased^
-        val a = ()
-        val b = ().asInstanceOf[table.IsReleased^]
+    def unlock(): table.IsHeld ?=!>? table.IsReleased =
+      Sigma((), ().asInstanceOf[table.IsReleased])
 
-    def locateRow(n: Int)(using c: table.IsHeld^):
-      Sigma { type A = table.Row; type B = a.IsReleased^ } =
+    def locateRow(n: Int): table.IsHeld^ ?=> Sigma { type A = table.Row; type B = a.IsReleased^ } =
       val row = new table.Row(n):
         type IsHeld = Unit
         type IsReleased = Unit
-      new Sigma {
+      new Sigma:
         type A = table.Row;
         type B = a.IsReleased^
         val a: row.type = row
         val b: a.IsReleased^ = ()
-      }
 
-    def lockRow(row: table.Row)(using c: table.IsHeld^): row.IsReleased >> row.IsHeld =
-      new Sigma:
-        type A = Unit
-        type B = row.IsHeld^
-        val a = ()
-        val b = ().asInstanceOf[row.IsHeld^]
+    def lockRow(row: table.Row): table.IsHeld^ ?=> row.IsReleased ?=!>? row.IsHeld =
+      Sigma((), ().asInstanceOf[row.IsHeld])
 
   extension (row: Table#Row)
-      def unlock(): row.IsHeld >> row.IsReleased =
-        new Sigma:
-          type A = Unit
-          type B = row.IsReleased^
-          val a = ()
-          val b = ().asInstanceOf[row.IsReleased^]
+    def unlock(): row.IsHeld ?=!>? row.IsReleased =
+      Sigma((), ().asInstanceOf[row.IsReleased])
 
   def computeOnRow(row: Table#Row)(using c: row.IsHeld^): Double = 5.0
 
 object Main:
   import Table.*
+
+  def main(args: Array[String]): Unit =
+    example1()
+    example2()
+    example3()
 
   def example1() =
     val table = Table(40)
@@ -114,7 +101,7 @@ object Main:
     table2.lock()
     val row1 = table1.locateRow(10)
     table1.lockRow(row1)
-    val row2 = table2.locateRow(50)
+    val row2 = table2.locateRow(40)
     // table2.lockRow(row1) // error
     table2.lockRow(row2)
     val data = computeOnRow(row2)
