@@ -46,3 +46,8 @@ object KillPos2:
 
     def two(): Unit @kill(p) =
       val bb = j
+
+  def killPolyGood[T](x: T^): Unit @kill(x) = ()
+
+  def killPolyGoodOK[B](x: B^) =
+    killPolyGood[B](x)

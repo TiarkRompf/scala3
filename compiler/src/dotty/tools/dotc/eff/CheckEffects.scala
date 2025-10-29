@@ -18,6 +18,7 @@ import Annotations.*
 import config.Feature
 import collection.mutable
 import typer.ErrorReporting.{err, Addenda}
+import typer.SigmaOps.*
 
 /**
  * Effect Checker
@@ -27,6 +28,10 @@ import typer.ErrorReporting.{err, Addenda}
  * be insufficient to check several Scala constructs, but it works reasonably well for basic cases).
  *
  * Only runs if capture checking is enabled.
+ *
+ * TODO:
+ * Make it so that only singleton paths can be killed (preventing killing classes).
+ * Make it so that purely polymorphic things cannot be killed e.g. T
  */
 object CheckEffects:
   val name: String = "eff"
@@ -566,6 +571,13 @@ class CheckEffects extends Recheck:
                 false
               case _ => true
 
+          // check that no pure type parameter is killed.
+          for ref <- refs1 if ref.tpe.typeSymbol.isTypeParam do
+            ref.tpe match
+              case tpe: CoreCapability if atCC(tpe.captureSetOfInfo.elems.isEmpty) =>
+                report.error(em"Term ${ref} cannot be killed because it is boxed!", tree.srcPos)
+              case _ =>
+
           val ka = new mutable.ListBuffer[Tree]() // killed args
           val kf = new mutable.ListBuffer[Tree]() // killed free variables
 
@@ -585,21 +597,22 @@ class CheckEffects extends Recheck:
           val killedArgs = ka.toList
           val killedFree = kf.toList
 
+          def checkIfKilledField(refs: Refs)(using Context): Unit =
+            for ref <- refs do
+              ref match
+                case TermRef(inner: TermRef, _) if !inner.widen.isSigma =>
+                  report.error(s"Cannot kill object field ${ref}", tree.srcPos)
+                case _ =>
+
           for arg <- killedArgs do
-            killed.addAll((boxedCaptures(arg) ++ captures(arg)).footprint.iterator.map(stripAllDC))
+            val deadArgs = (boxedCaptures(arg) ++ captures(arg)).footprint.map(stripAllDC)
+            checkIfKilledField(deadArgs)
+            killed.addAll(deadArgs.iterator)
 
-          val deadFree = SimpleIdentitySet(killedFree.filter { ref =>
-            ref.tpe match
-              case tp: ObjectCapability if tp.isTrackableRef => true
-              case tp =>
-                // println(i"${tp} <- FILTER DEAD FREE AND FOUND")
-                // println(tree.show)
-                // println(tree.args.map(_.show))
-                // println(s"${ref.show} <- filter dead free and found")
-                false
-          }.flatMap(toCapabilities)*).footprint
-
-          killed.addAll(deadFree.iterator.map(stripAllDC))
+          for free <- killedFree do
+            val deadFree = (boxedCaptures(free) ++ captures(free)).footprint.map(stripAllDC)
+            checkIfKilledField(deadFree)
+            killed.addAll(deadFree.iterator)
 
           val (fnRef, fnCS) = fn match
             case Select(qual, _) => // func.apply() is Select(func, apply) for some closure func

@@ -13,6 +13,7 @@ import Recheck.*
 import cc.*
 import CheckEffects.*
 import NamerOps.methodType
+import typer.SigmaOps.*
 
 trait FXSetupAPI:
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree
@@ -49,9 +50,10 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
     import KillOps.*
 
     /**
-     * Dead code - was used to check that
-     * explicitly given type annotations with kill effect
-     * must only kill capabilities with non-empty capture sets.
+     * Checks explicitly given types for the following conditions on kill effect:
+     * 1. Must be a capability with a non-empty capture set (TODO: relax this?).
+     * 2. Cannot be a pure type variable
+     * 3. Cannot be a object field (this is heuristically checked) unless path derives from Sigma
      */
     def checkExplicitTT(tree: TypeTree)(using Context): Unit =
       val checkTraverser = new TypeTraverser:
@@ -66,7 +68,6 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
             for ref <- crefs do
               if atCC(ref.captureSetOfInfo.elems.isEmpty)
                   && !ref.coreType.derivesFrom(defn.Caps_Capability) then
-
                 val isPolyParam = ref.coreType match
                   case ref: TermRef =>
                     ref.typeSymbol.isTypeParam
@@ -77,8 +78,15 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                 // for tuples, only the deep capture set has a capability.
                 // probably special case this for common data uctures like tuples and lists.
                 // instead of checking in general? who knows.
-                if !isPolyParam && atCC(ref.coreType.deepCaptureSet.elems.isEmpty) then
+                if isPolyParam then
+                  report.error(em"Term ${ref} cannot be killed since it is boxed!", tree.srcPos)
+                if atCC(ref.coreType.deepCaptureSet.elems.isEmpty) then
                   report.error(em"${ref} cannot be killed since its capture set is empty!", tree.srcPos)
+              else
+                ref.coreType match
+                  case TermRef(inner: TermRef, _) if !inner.widen.isSigma =>
+                    report.error(em"Term ${ref} cannot be killed as it is an object field!", tree.srcPos)
+                  case _ =>
             traverseChildren(parent)
           case defn.RefinedFunctionOf(mt) =>
             /**
@@ -100,7 +108,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
           if tree.isInferred then
             tree.withType(tree.tpe.dropAllKill)
           else
-            // checkExplicitTT(tree)
+            checkExplicitTT(tree)
             tree
 
         case tree @ DefDef(name, paramss, tpt, rhs) =>

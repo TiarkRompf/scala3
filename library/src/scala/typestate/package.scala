@@ -58,7 +58,7 @@ infix type =!>[T, U] = (c: T) => (U) @kill(c)
 infix type ?=!>[T, U] = (c: T) ?=> (U) @kill(c)
 
 @experimental
-infix type ?=!>?[S1, S2] = (c: S1 @retainsCap()) ?=> (Sigma {type A = Unit; type B = S2 @retainsCap()}) @kill(c)
+infix type ?=!>?[S1, S2] = (c: S1 @retainsCap()) ?=> ( ( Sigma {type A = Unit; type B = S2 @retainsCap()}) @retainsCap()) @kill(c)
 
 // /**
 //   * Annotation which stops ANF transformation if annotated on

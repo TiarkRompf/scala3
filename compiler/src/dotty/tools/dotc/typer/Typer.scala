@@ -4667,6 +4667,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       case Apply(b, args) if isSigma(tree2.tpe) && !isSigma(pt) =>
         pushSigma(tree2, tree)
 
+      // TODO adding this case breaks the session-typed channel factory method. 
+      // case Block(_, _) if isSigma(tree2.tpe) && !isSigma(pt) =>
+      //   pushSigma(tree2, tree)
+
       case Select(qual, name) if isSigma(tree2.tpe) && !isSigma(pt)
         && qual.tpe.widenDealias.typeSymbol.derivesFrom(defn.TupleClass)
         && name.isSelectorName =>
