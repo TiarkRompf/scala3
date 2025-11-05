@@ -3092,20 +3092,18 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
   // Second attempt, using typerState
 
   def tryCatchCPS1[T](f: => T)(g: (TermName, untpd.Tree) => T)(using Context): T = {
-    val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
-    val saveStmList = stmList
-    val saveCpsCounter = cpsCounter
+    val FlowState(saveStmList, saveCpsCounter) = ctx.typerState.flowState
     try f catch {
       case e: CPSException =>
-        val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = ctx.typerState.flowState : @unchecked
+        val FlowState(stmList, cpsCounter) = ctx.typerState.flowState
         // println("stat2 at "+stmList.length+","+cpsCounter+" "+" "+ctx.typerState.flowState)
-        ctx.typerState.flowState = FlowState(stmList, saveCpsCounter)
+        ctx.typerState.setFlowState(newCount = saveCpsCounter)
         if (stmList.isEmpty) then
           assert(false, s"stmList is empty, saveStmList = ${saveStmList}")
         else
-        try g(termName(s"sigma${stmList.length-1}"), stmList.last)
+        try g(termName(s"sigma${stmList.length - 1}"), stmList.last)
         finally {
-          ctx.typerState.flowState = FlowState(saveStmList,  saveCpsCounter)
+          ctx.typerState.setFlowState(saveStmList,  saveCpsCounter)
         }
     }
   }
@@ -3202,24 +3200,20 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     }
   }
 
-  def getFlowState(using Context): (List[untpd.Tree], Int) =
-    val FlowState(stmList: List[untpd.Tree] @unchecked, cpsCounter) = (ctx.typerState.flowState : @unchecked)
-    (stmList, cpsCounter)
-
   def pushSigma(tree: tpd.Tree, initTree: untpd.Tree)(using Context): Tree =
     val flag = tree.hasAttachment(InsertedApply) ||
       initTree.hasAttachment(InsertedApply)
     if (!ctx.isTyper || flag) return tree
 
-    val (stmList, cpsCounter) = getFlowState
+    val FlowState(stmList, cpsCounter) = ctx.typerState.flowState
     if cpsCounter >= stmList.length then
       // println("found new sigma "+cpsCounter+" "+tree.show)
       val hygienicTree = untpd.TypedSplice(tree).withAttachment(InsertedApply, ())
-      ctx.typerState.flowState = FlowState(stmList :+ hygienicTree, cpsCounter)
+      ctx.typerState.setFlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     else
       // println("found old sigma "+cpsCounter+" "+tree.show + i" stmList: $stmList")
-      ctx.typerState.flowState = FlowState(stmList, cpsCounter + 1)
+      ctx.typerState.setFlowState(stmList, cpsCounter + 1)
       val id = typedTail(untpd.Ident(termName(s"sigma${cpsCounter}")).withSpan(tree.span))
       val selA = untpd.Select(untpd.TypedSplice(id), termName("a"))
       typedExpr(selA)
@@ -4667,7 +4661,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       case Apply(b, args) if isSigma(tree2.tpe) && !isSigma(pt) =>
         pushSigma(tree2, tree)
 
-      // TODO adding this case breaks the session-typed channel factory method. 
+      // TODO adding this case breaks the session-typed channel factory method.
       // case Block(_, _) if isSigma(tree2.tpe) && !isSigma(pt) =>
       //   pushSigma(tree2, tree)
 
@@ -4675,6 +4669,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
         && qual.tpe.widenDealias.typeSymbol.derivesFrom(defn.TupleClass)
         && name.isSelectorName =>
         pushSigma(tree2, tree)
+
+      // case _ if isSigma(tree2.tpe) =>
+      //   println(s"${tree2.show} <- tree.show 2")
+      //   tree2
 
       case _ =>
         tree2
