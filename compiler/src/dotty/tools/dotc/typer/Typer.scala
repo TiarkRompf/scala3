@@ -97,6 +97,8 @@ object Typer {
    */
   private val InsertedApply = new Property.Key[Unit]
 
+  private val ANFTransformed = new Property.StickyKey[tpd.Tree]
+
   /** An attachment on a result of an implicit conversion or extension method
    *  that was added by tryInsertImplicitOnQualifier. Needed to prevent infinite
    *  expansions in error cases (e.g. in fuzzy/i9293.scala).
@@ -3130,12 +3132,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           ),
           last
         )
-      )
-
-      // untpd.Apply(untpd.Select(pre, (termName("flatMap"))),
-      //   List(untpd.Function(
-      //     List(untpd.ValDef(nme, untpd.TypeTree(), untpd.EmptyTree).withFlags(Param | Given)),
-      //       last)))
+       )
       ))
 
   /**
@@ -3200,6 +3197,37 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     }
   }
 
+  /**
+   * @param tree Tree to be transformed. It must be fully typed to Sigma.
+   * @param initTree untyped tree prior to type-checking.
+   *
+   * Notes on implementation:
+   * The transformation works as follows (where foo(): Sigma { ... }):
+   *
+   * Initial          Stage 1                         Final
+   * val k = foo() => val sigma0 = foo()           => val sigma0 = foo()
+   * ...              {                               {
+   *                    val sigma0_CAP = sigma0.b       val sigma0_CAP = sigma0.b
+   *                    val k = foo()                   val k = sigma0.a
+   *                    ...                             ...
+   *                  }                               }
+   *
+   * So it is completely type-directed - after typing foo() initially to Sigma,
+   * we must retype the transformed block at stage 1, which means re-typing foo() twice.
+   * The first instance of foo() will already be typed, so we wrap it in an TypedSplice to
+   * prevent re-typing it. This is highly important due to tree transformations that
+   * can occur due to typing. For example, if foo() had an implicit parameter,
+   * the typed version of foo() would be foo()(using ...), but then retyping this
+   * version again will result in an error.
+   *
+   * We should also prevent retyping the second instance of foo (in stage 1). Although this
+   * foo() is untyped, the problem is that it can mess up the CPS counter in the flowState.
+   * For example, if foo() is foo { bar(); ... } where bar() triggers a Sigma transform,
+   * then the cps counter will be completely wrong for bar() if we retype the entire foo { bar(); ... } term,
+   * and bar() will get transformed into sigma0.a (cpsCounter < stmList.length).
+   * Therefore, we prevent re-typing the initTree in this second instance by attaching a TypedAhead with the
+   * typed tree. This still triggers the replacement of foo() in the second instance depicted in final.
+   */
   def pushSigma(tree: tpd.Tree, initTree: untpd.Tree)(using Context): Tree =
     val flag = tree.hasAttachment(InsertedApply) ||
       initTree.hasAttachment(InsertedApply)
@@ -3207,8 +3235,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
 
     val FlowState(stmList, cpsCounter) = ctx.typerState.flowState
     if cpsCounter >= stmList.length then
-      // println("found new sigma "+cpsCounter+" "+tree.show)
       val hygienicTree = untpd.TypedSplice(tree).withAttachment(InsertedApply, ())
+      initTree.putAttachment(ANFTransformed, tree)
       ctx.typerState.setFlowState(stmList :+ hygienicTree, cpsCounter)
       throw new CPSException
     else
@@ -3769,7 +3797,8 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       case tree1: TypeTree => tree1  // no change owner necessary here ...
       case tree1: Ident => tree1     // ... or here, since these trees cannot contain bindings
       case tree1 =>
-        if (ctx.owner ne tree.owner) tree1.changeOwner(tree.owner, ctx.owner)
+        if (ctx.owner ne tree.owner) && !tree.hasAttachment(InsertedApply) then
+          tree1.changeOwner(tree.owner, ctx.owner)
         else tree1
     }
 
@@ -3994,6 +4023,10 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
             // and a large error span would hide all errors in interior.
             // TODO: Not clear that hiding is what we want, actually
             errorTree(xtree, ex, xtree.srcPos.focus)
+
+        xtree.removeAttachment(ANFTransformed) match
+          case Some(ttree) => return ttree
+          case none =>
 
         try
           val ifpt = defn.asContextFunctionType(pt)
@@ -4247,7 +4280,7 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           traverse(rest, expr)(using stat1.nullableContext)
         } { k =>
           rest.foreach(x => x.removeAttachment(SymOfTree))
-          val last = untpd.Block(stat::rest, expr)
+          val last = untpd.Block(stat :: rest, expr)
           traverse(Nil, k(last)) //(using stat1.nullableContext)
         }
       case nil =>
@@ -5413,6 +5446,24 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           case tp: NamedType => ref(tp)
           case _ => TypeTree(tpe, true)
 
+      def adaptToEither(scd: Type): Option[Tree] = scd match
+        case AppliedType(tycon: TypeRef, leftTpe :: rightTpe :: Nil) if tycon == defn.EitherTypeRef =>
+          val leftTry = inferImplicitArg(leftTpe, tree.span.endPos)
+          leftTry.tpe match
+            case _: SearchFailureType =>
+              val rightTry = inferImplicitArg(rightTpe, tree.span.endPos)
+              rightTry.tpe match
+                case _: SearchFailureType => None
+                case _ =>
+                  Some(typedTail(
+                    untpd.Apply(untpd.Ident(defn.RightTypeRef.name.toTermName), untpd.TypedSplice(rightTry) :: Nil)
+                  ))
+            case _ =>
+              Some(typedTail(
+                untpd.Apply(untpd.Ident(defn.LeftTypeRef.name.toTermName), untpd.TypedSplice(leftTry) :: Nil)
+              ))
+        case _ => None
+
       val fst =
         val fst = pt.typeMembers.head.info.dropAlias
         fst match
@@ -5425,15 +5476,27 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
       val scd =
         val scd = pt.typeMembers.last.info.dropAlias
         pt match
-        case pt: RecType =>
-          if !fst.isSingleton then
-            report.error(
-              i"Adapting sigma failed with: ${fst} is not a singleton type."
-            , tree.srcPos)
-          val selfRef = TermRef(pt.recThis, termName("a"))
-          substSigmaMember(scd, tree.tpe, selfRef)
-        case pt => scd
+          case pt: RecType =>
+            if !fst.isSingleton then
+              report.error(
+                i"Adapting sigma failed with: ${fst} isnot a singleton type.",
+              tree.srcPos)
+            val selfRef = TermRef(pt.recThis, termName("a"))
+            substSigmaMember(scd, tree.tpe, selfRef)
+          case pt => scd
 
+      /**
+      val scdArg = { val firstTry = inferImplicitArg(scd, tree.span.endPos)
+      firstTry.tpe match
+        case failed: SearchFailureType => adaptToEither(scd) match
+          case None =>
+            report.error(i"Sigma pair implicit search failed with: $failed",
+            tree.srcPos)
+            firstTry
+          case Some(success) => success
+        case _ => firstTry
+      }
+      */
       val scdArg = inferImplicitArg(scd, tree.span.endPos)
       scdArg.tpe match
         case failed: SearchFailureType =>
