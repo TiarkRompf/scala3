@@ -2,6 +2,7 @@ package scala
 package typestate
 
 import annotation.{experimental, StaticAnnotation, retainsCap}
+// Note that retainsCap is internal annotation for ^
 
 /**
   * Annotation that indicates killed set of references.
@@ -33,6 +34,10 @@ trait Sigma:
 @experimental
 infix type ?<=[B1, A1] = (Sigma { type A = A1; type B = B1 }) @retainsCap()
 
+/**
+ * @param a1 - first value of Sigma (returned explicitly)
+ * @param a2 - second value of Sigma (returned implicitly)
+ */
 @experimental
 def Sigma[A1, B1](a1: A1, b1: B1): Sigma { type A = A1; type B = B1 } =
   new Sigma:
@@ -59,18 +64,3 @@ infix type ?=!>[T, U] = (c: T) ?=> (U) @kill(c)
 
 @experimental
 infix type ?=!>?[S1, S2] = (c: S1 @retainsCap()) ?=> ( ( Sigma {type A = Unit; type B = S2 @retainsCap()}) @retainsCap()) @kill(c)
-
-// /**
-//   * Annotation which stops ANF transformation if annotated on
-//   * a transformation-triggering type.
-//   */
-// @experimental
-// class StopTransform extends annotation.StaticAnnotation
-
-// /**
-//   * Singleton tuple which returns its inhabitant implictly.
-//   *
-//   * @param obj inhabitant to be returned implicitly
-//   */
-// @experimental
-// class IBox[T](val obj: T)

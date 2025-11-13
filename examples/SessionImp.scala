@@ -1,10 +1,22 @@
-// Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
-// Uses channel itself directly
 import language.experimental.captureChecking
 import caps.*
+// import scala.concurrent.{ Future, ExecutionContext }
+// import ExecutionContext.Implicits.global
 import typestate.*
 import scala.annotation.tailrec
 import scala.compiletime.ops.int.S
+
+trait PList
+class PNil extends PList
+class ::[P <: Session, L <: PList] extends PList
+
+class Chan:
+  type PCap[E <: PList, P <: Session]
+  // type ES[P <: Session] = this.PCap[PNil, P]
+  // type withProtocol[E <: PList, P <: Session, T] = (c: this.PCap[E, P]^) ?=> (T) @kill(c)
+  // type withEProtocol[P <: Session, T] = (c: this.PCap[PNil, P]^) ?=> (T) @kill(c)
+  private var _isOpen = true
+  def isOpen = _isOpen
 
 trait Session
 class Send[T, P <: Session] extends Session
@@ -14,6 +26,8 @@ class Branch[L <: Session, R <: Session] extends Session
 class Rec[P <: Session] extends Session
 class Var[N <: Int] extends Session
 class End extends Session
+// class Delegate[Chan <: Session, P <: Session] extends Session
+// class RecvChan[Chan <: Session, P <: Session]
 
 type Dual[P <: Session] <: Session = P match
   case Send[t, p] => Recv[t, Dual[p]]
@@ -24,174 +38,240 @@ type Dual[P <: Session] <: Session = P match
   case Var[n] => Var[n]
   case End => End
 
-class Chan[E <: Tuple, P <: Session]
-type EChan[P <: Session] = Chan[EmptyTuple, P]
-type Emp[P <: Session] = P *: EmptyTuple
-
 object Chan:
-  def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^) =
-    (new Chan[EmptyTuple, P], new Chan[EmptyTuple, Dual[P]])
+  def apply[P <: Session]():
+    ( Sigma { type A = Chan; type B = a.PCap[PNil, P]^ },
+      Sigma { type A = Chan; type B = a.PCap[PNil, Dual[P]]^ }) =
+    val c1 = new Chan
+    val c2 = new Chan
+    ( new Sigma:
+        type A = Chan
+        type B = a.PCap[PNil, P]^
+        val a: c1.type = c1
+        val b: c1.PCap[PNil, P]^ = ().asInstanceOf[c1.PCap[PNil, P]],
+      new Sigma:
+        type A = Chan
+        type B = a.PCap[PNil, Dual[P]]^
+        val a: c2.type = c2
+        val b: c2.PCap[PNil, Dual[P]]^ = ().asInstanceOf[c2.PCap[PNil, Dual[P]]]
+    )
 
-  extension [E <: Tuple, P <: Session](chan: Chan[E, Rec[P]]^)
-   def rec_push(): (Chan[P *: E, P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[P *: E, P]]
+  extension (chan: Chan)
+    def recPush[E <: PList, P <: Session](): chan.PCap[E, Rec[P]] ?=!>? chan.PCap[P :: E, P] =
+      ???
+      // Sigma((), ().asInstanceOf[chan.PCap[P :: E, P]])
 
-  extension [E <: Tuple, P <: Session](chan: Chan[P *: E, Var[0]]^)
-    def rec_top(): (Chan[P *: E, P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[P *: E, P]]
+    def recTop[E <: PList, P <: Session](): chan.PCap[P :: E, Var[0]] ?=!>? chan.PCap[P :: E, P] =
+      ??? // c.asInstanceOf[chan.PCap[(P, E), P]]
 
-  extension [E <: Tuple, P <: Session, N <: Int](chan: Chan[P *: E, Var[S[N]]]^)
-    def rec_pop(): (Chan[E, Var[N]]^) @kill(chan) =
-      chan.asInstanceOf[Chan[E, Var[N]]]
+    def recPop[E <: PList, P <: Session, N <: Int](): chan.PCap[P :: E, Var[S[N]]] ?=!>? chan.PCap[E, Var[N]] =
+      ??? // c.asInstanceOf[chan.PCap[E, Var[N]]]
 
-  extension [E <: Tuple, P <: Session, T](chan: Chan[E, Send[T, P]]^)
-    def send(x: T): (Chan[E, P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[E, P]]
+    def send[T, E <: PList, P <: Session](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P] =
+      ??? // c.asInstanceOf[chan.PCap[E, P]]
 
-  extension [E <: Tuple, P <: Session, T](chan: Chan[E, Recv[T, P]]^)
-    def recv(): (Chan[E, P]^, T) @kill(chan) =
+    def recv[T, E <: PList, P <: Session](): (chan.PCap[E, Recv[T, P]]^) ?=!> ((chan.PCap[E, P]^) ?<= T) =
+      new Sigma:
+        type A = T
+        type B = chan.PCap[E, P]^
+        val a: T = ???
+        val b: chan.PCap[E, P]^ = ().asInstanceOf[chan.PCap[E, P]]
+
+    def left[E <: PList, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, L] =
+      ??? // c.asInstanceOf[chan.PCap[E, L]]
+
+    def right[E <: PList, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, R] =
+      ??? // c.asInstanceOf[chan.PCap[E, R]]
+
+
+    def branch2[E <: PList, L <: Session, R <: Session, T](): chan.PCap[E, Branch[L, R]] ?=!>? Either[chan.PCap[E, L], chan.PCap[E, R]]^ =
       ???
 
-  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Select[L, R]]^))
-    def left(): (Chan[E, L]^) @kill(chan) =
-      chan.asInstanceOf[Chan[E, L]]
+    // def branch2[E <: PList, L <: Session, R <: Session, T]: (chan.PCap[E, Branch[L, R]]^) ?=!>
+    //   (chan.PCap[E, Branch[L, R]]^) ?=!> Unit = ???
 
-    def right(): (Chan[E, R]^) @kill(chan) =
-      chan.asInstanceOf[Chan[E, R]]
 
-  // extension [E <: Tuple, L <: Session, R <: Session, T](chan: Chan[E, Branch[L, R]]^)
-  //   def branch(left: (c: Chan[E, L]^) => T @kill(c))
-  //             (right: (c: Chan[E, R]^) => T @kill(c)): T @kill(chan) =
-  //     ???
+    // def branch2[E <: PList, L <: Session, R <: Session](using c: chan.PCap[E, Branch[L, R]]^)
+    //   [T](l: chan.PCap[E, L]^ ?=> T^)(r: chan.PCap[E, R]^ ?=> T^): (T^) @kill(c) =
+    //   if ??? then
+    //     l(using c.asInstanceOf[chan.PCap[E, L]])
+    //   else
+    //     r(using c.asInstanceOf[chan.PCap[E, R]])
 
-  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Branch[L, R]]^))
-    def branch(): Either[Chan[E, L]^, Chan[E, R]^] @kill(chan) =
-      ???
+    def close[E <: PList](): (chan.PCap[E, End]^) ?=> Unit =
+      chan._isOpen = false
 
-  extension [E <: Tuple](chan: Chan[E, End]^)
-    def close(): Unit @kill(chan) = ()
+    // def loop[T, U^](using c: T^{U})(cond: => Boolean)
+    // (body : k: T^{U} ?=> Sigma { type A = Unit; type B = T^{U}} @kill(k)): Unit @kill(c)
+
+    // def loop[E <: PList, P <: Session](using c: chan.PCap[E, P]^)(cond: => Boolean)
+    // (body: (k: chan.PCap[E, P]^) ?=> Option[chan.PCap[E, P]^] @kill(k)): Unit @kill(c) =
+    //   if cond then
+    //     body(using c) match
+    //       case Some(c) =>
+    //         chan.loop(using c)(cond)(body)
+    //       case None =>
 
 type EchoSInner = Recv[String, Branch[Var[0], End]]
 type EchoServer = Rec[EchoSInner]
 type EchoCInner = Dual[EchoSInner]
 type EchoClient = Dual[EchoServer]
 
-object EchoServer:
-  def apply(c: EChan[EchoServer]^) =
-    val c2 = c.rec_push()
+def loop[T, U](using c: T^)(cond: => Boolean)(body: T ?=!>? Either[T, U]): ((U^) ?<= Unit) @kill(c) = ???
 
-    def recur(c: Chan[Emp[EchoSInner], EchoSInner]^): Unit @kill(c) = {
-      val (c2, str) = c.recv()
-      println(str)
-      c2.branch() match
-        case Left(c) =>
-          recur(c.rec_top())
-        case Right(c) =>
-          c.close()
+def ifC[T, B1, B2](using c: T^)(cond: => Boolean)[A1](tbranch: (T^) ?=!> ((B1^) ?<= A1))(ebranch: (T^) ?=!> ((B2^) ?<= (A1))): ((Either[B1, B2]^) ?<= A1) @kill(c) = ???
+
+def matchC[A, B, T](using c: Either[A, B]^)[U](left: (A^) ?=!> ((T^) ?<= U))(right: (B^) ?=!> ((T^) ?<= U)): ((T^) ?<= U) @kill(c) =
+  ???
+
+object EchoServer:
+  def apply2(chan: Chan): (chan.PCap[PNil, EchoServer]^) ?=!> Unit =
+    chan.recPush()
+
+    loop[chan.PCap[EchoSInner :: PNil, EchoSInner], chan.PCap[EchoSInner :: PNil, End]] (true) {
+      println(chan.recv())
+      chan.branch2()
     }
 
-    recur(c2)
-  end apply
+    // loop[chan.PCap[EchoSInner :: PNil, EchoSInner], chan.PCap[EchoSInner :: PNil, End]] (true) {
+    //   println(chan.recv())
+    //   chan.branch2()
+    //   matchC[chan.PCap[EchoSInner :: PNil, Var[0]], chan.PCap[EchoSInner :: PNil, EchoSInner :: End], NoState] {
+    //     chan.recTop()
+    //   } {
+    //     chan.close()
+    //   }
+    // }
+
+    type CS = EchoSinner :: PNil
+
+    // def recur(chan: Chan): (chan.PCap[CS, EchoSInner]^) ?=!> (chan.PCap[CS, Close]) =
+    //   chan.recv()
+    //   chan.branch2()
+    //   matchC[chan.PCap[CS, Var[0]], chan.PCap[CS, Close]] {
+    //     chan.recTop()
+    //     recur(chan)
+    //   }
+
+  def apply(chan: Chan): (chan.PCap[PNil, EchoServer]^) ?=!> Unit = // chan.PCap[PNil, EchoServer] ?=!> Unit
+    chan.recPush()
+
+    def recur(chan: Chan): (chan.PCap[EchoSInner :: PNil, EchoSInner]^) ?=!> Unit =
+      println(chan.recv())
+      chan.branch {
+        chan.recTop()
+        recur(chan)
+      } {
+        chan.close()
+      }
+    recur(chan)
 
 object EchoClient:
-  def readLine(): String = ""
+  def readLine(): String = ???
 
-  def apply(c: EChan[EchoClient]^) =
-    val c2 = c.rec_push()
+  def apply(chan: Chan): (chan.PCap[PNil, EchoClient]^) ?=!> Unit =
+    chan.recPush()
 
-    @tailrec def recur(c: Chan[Emp[EchoCInner], EchoCInner]^): Unit @kill(c) =
-      val input = readLine()
-      val c2 = c.send(input)
-
-      if (input == "exit") then
-        c2.right().close()
+    def recur(chan: Chan): (chan.PCap[EchoCInner :: PNil, EchoCInner]^) ?=!> Unit =
+      val msg = readLine()
+      chan.send(msg)
+      // chan.send(msg)
+      val goAgain = readLine()
+      if (goAgain == "") then
+        chan.left()
+        chan.recTop()
+        recur(chan)
       else
-        recur(c2.left().rec_top())
-    end recur
-    recur(c2)
-  end apply
+        chan.right()
+        chan.close()
 
-object Main:
-  def echo_test() =
-    val (serverChan, clientChan) = Chan[EchoServer]()
-    EchoServer(serverChan)
-    EchoClient(clientChan)
+    recur(chan)
 
-/*
 type AtmDeposit = Recv[Int, Send[Int, Var[0]]]
 type AtmWithdraw = Recv[Int, Select[Var[0], Var[0]]]
 type AtmInner = Branch[AtmDeposit, Branch[AtmWithdraw, End]]
 type Atm = Recv[String, Select[Rec[AtmInner], End]]
 
-type Client = Dual[Atm]
-type ClientInner = Dual[AtmInner]
-
-object Atm:
-  private def approved(id: String) = true
-  private def updateBal(amt: Int): Int = amt + 10
-
-  def apply(c: Chan[Unit, Atm]): Unit =
-    val (c1, id) = c.recv()
-    if !approved(id) then
-      c1.right().close()
-      return
-    else
-      val c2 = c1.left().rec_push()
-      @tailrec def recur(c: Chan[(AtmInner, Unit), AtmInner]): Unit =
-        c.offer() match
-          case Left(c) =>
-            val (c2, amt) = c.recv()
-            recur(c2.send(updateBal(amt)).rec_top())
-          case Right(c) =>
-            c.offer() match
-              case Left(c) =>
-                val (c2, amt) = c.recv()
-                if 10 >= amt then
-                  recur(c2.left().rec_top())
-                else
-                  recur(c2.right().rec_top())
-              case Right(c) =>
-                c.close()
-      end recur
-      recur(c2)
-      // var isOpen = true
-      // while (isOpen) do // not nice
-      //   c.offer() match
-      //     case Left(c1) =>
-      //       val (c2, amt) = c1.recv()
-      //       c = c2.send(updateBal(amt)).rec_top()
-      //     case Right(c1) =>
-      //       c1.offer() match
-      //         case Left(c1) =>
-      //           val (c2, amt) = c1.recv()
-      //           if (amt <= 10) then
-      //             c = c2.left().rec_top()
-      //           else
-      //             c = c2.right().rec_top()
-      //         case Right(c1) =>
-      //           c1.close()
-      //           isOpen = false
-
-type AtmClient = Dual[Atm]
 type AtmClientInner = Dual[AtmInner]
+type AtmClient = Dual[Atm]
+
+object ATM:
+  def approved(id: String): Boolean = ???
+  def updateBalance(amt: Int): Int = ???
+  def getBalance(id: String): Int = ???
+
+  def apply(chan: Chan): (chan.PCap[PNil, Atm]^) ?=!> Unit =
+    val id = chan.recv()
+    if !approved(id) then
+      chan.right()
+      chan.close()
+    else
+      chan.left()
+      chan.recPush()
+
+      def atmInner(chan: Chan): (chan.PCap[AtmInner :: PNil, AtmInner]^) ?=!> Unit =
+        chan.branch {
+          val amt = chan.recv()
+          // update balance
+          val newBalance = updateBalance(amt)
+          chan.send(newBalance)
+          chan.recTop()
+          atmInner(chan)
+        } {
+          chan.branch {
+            val amt = chan.recv()
+            if getBalance(id) >= amt then
+              chan.left()
+              chan.recTop()
+              atmInner(chan)
+              ()
+            else
+              chan.right()
+              chan.recTop()
+              atmInner(chan)
+              ()
+          } {
+            chan.close()
+          }
+        }
+      atmInner(chan)
 
 object AtmClient:
-  val id: String = "A"
-  def clientDeposit(c: Chan[Unit, AtmClient]): Unit =
-    val c2 = c.send(id).offer() match
-      case Left(c) => c.rec_push()
-      case Right(c) =>
-        c.close()
-        return
+  def withdraw(chan: Chan): (chan.PCap[PNil, AtmClient]^) ?=!> Unit =
+    val id: String = ???
+    chan.send(id)
+    chan.branch {
+      chan.recPush()
+      chan.right()
+      chan.left()
+      chan.send(200)
+      chan.branch {
+        println("Withdraw succeeded!")
+        chan.recTop()
+        chan.right()
+        chan.right()
+        chan.close()
+      } {
+        println("Overdraft!")
+        chan.recTop()
+        chan.left()
+        chan.send(50)
+        chan.recv()
+        chan.recTop()
+        chan.right()
+        chan.right()
+        chan.close()
+      }
+    } {
+      chan.close()
+    }
 
-    val (c3, new_bal) = c2.left().send(100).recv()
-    println(s"New Balance: ${new_bal}")
-    c3.rec_top().right().right().close()
-
-object Main:
-  // import AtmClient.clientDeposit
-  // def atm_test() =
-  //   val (atm_chan, client_chan) = Chan[Atm]() // create new channels
-  //   Atm(atm_chan) // start atm server
-  //   clientDeposit(client_chan) // start a client
-*/
+// object Main:
+//   def echotest() =
+//     val (serverChan, clientChan) = Chan[EchoServer]()
+//     Future {
+//       EchoServer(serverChan)
+//     }
+//     Future {
+//       EchoClient(clientChan)
+//     }
