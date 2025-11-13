@@ -2,42 +2,27 @@ import language.experimental.captureChecking
 import caps.*
 import typestate.*
 
-trait Lock:
-  type IsHeld // lock is locked, usable
-  type IsReleased // lock is unlocked, unusable
+package LockableTable:
+  trait Lock:
+    type IsHeld // lock is locked, usable
+    type IsReleased // lock is unlocked, unusable
 
-// object Lock:
-//   extension (lock: Lock)
-//     def lock(): lock.IsReleased >> lock.IsHeld =
-//       new Sigma:
-//         type A = Unit
-//         type B = lock.IsHeld^
-//         val a = ()
-//         val b = ().asInstanceOf[lock.IsHeld^]
+  class Table(n: Int) extends Lock:
+    private val table: Array[Array[Double]] = new Array[Array[Double]](n)
+    class Row private[LockableTable](m: Int) extends Lock:
+      private val row: Array[Double] = table(m)
 
-//     def unlock(): lock.IsHeld >> lock.IsReleased =
-//       new Sigma:
-//         type A = Unit
-//         type B = lock.IsReleased^
-//         val a = ()
-//         val b = ().asInstanceOf[lock.IsReleased^]
-
-class Table(n: Int) extends Lock:
-  private val table: Array[Array[Double]] = new Array[Array[Double]](n)
-  class Row(m: Int) extends Lock:
-    private val row: Array[Double] = table(m)
-
-object Table:
-  def apply(n: Int): Sigma { type A = Table; type B = a.IsReleased^ } =
-    val table = new Table(n):
-      type IsReleased = Unit
-      type IsHeld = Unit
-    new Sigma:
-      type A = Table
-      type B = a.IsReleased^
-      val a: table.type = table
-      val b: a.IsReleased^ = ()
-  end apply
+  object Table:
+    def apply(n: Int): Sigma { type A = Table; type B = a.IsReleased^ } =
+      val table = new Table(n):
+        type IsReleased = Unit
+        type IsHeld = Unit
+      new Sigma:
+        type A = Table
+        type B = a.IsReleased^
+        val a: table.type = table
+        val b: a.IsReleased^ = ()
+    end apply
 
   extension (table: Table)
     def lock(): table.IsReleased ?=!>? table.IsHeld =
@@ -59,14 +44,13 @@ object Table:
     def lockRow(row: table.Row): table.IsHeld^ ?=> row.IsReleased ?=!>? row.IsHeld =
       Sigma((), ().asInstanceOf[row.IsHeld])
 
-  extension (row: Table#Row)
-    def unlock(): row.IsHeld ?=!>? row.IsReleased =
-      Sigma((), ().asInstanceOf[row.IsReleased])
+  def unlockRow(row: Table#Row): row.IsHeld ?=!>? row.IsReleased =
+    Sigma((), ().asInstanceOf[row.IsReleased])
 
-  def computeOnRow(row: Table#Row)(using c: row.IsHeld^): Double = 5.0
+  def computeOnRow(row: Table#Row): row.IsHeld^ ?=> Double = 5.0
 
 object Main:
-  import Table.*
+  import LockableTable.*
 
   def main(args: Array[String]): Unit =
     example1()
@@ -79,7 +63,7 @@ object Main:
     val row = table.locateRow(5)
     table.lockRow(row)
     val result = computeOnRow(row)
-    row.unlock()
+    unlockRow(row)
     result
 
   def example2() =
@@ -89,7 +73,7 @@ object Main:
     table.lockRow(row)
     table.unlock() // unlock table first
     val result = computeOnRow(row)
-    row.unlock()
+    unlockRow(row)
     // table.lockRow(row) // error
     result
 

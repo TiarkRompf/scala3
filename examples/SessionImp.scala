@@ -1,10 +1,10 @@
 // Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
 // Uses channel itself directly
 import language.experimental.captureChecking
-import caps.*, unsafe.*
+import caps.*
 import typestate.*
-import scala.annotation, annotation.tailrec
-import scala.compiletime.ops.int.*
+import scala.annotation.tailrec
+import scala.compiletime.ops.int.S
 
 trait Session
 class Send[T, P <: Session] extends Session
@@ -27,15 +27,6 @@ type Dual[P <: Session] <: Session = P match
 class Chan[E <: Tuple, P <: Session]
 type EChan[P <: Session] = Chan[EmptyTuple, P]
 type Emp[P <: Session] = P *: EmptyTuple
-
-def loop[T](x: T^)(cond: => Boolean)(body: (y: T^) => (Option[T^]) @kill(y)): Unit @kill(x) =
-  if cond then
-    body(x) match
-      case Some(c) =>
-        loop[T](c)(cond)(body)
-      case _ =>
-
-def Som[T](x: T): Option[T] = Some(x)
 
 object Chan:
   def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^) =
@@ -101,20 +92,6 @@ object EchoServer:
 
     recur(c2)
   end apply
-
-  def apply2(c: EChan[EchoServer]^) =
-    val c2 = c.rec_push()
-
-    loop[Chan[Emp[EchoSInner], EchoSInner]](c2)(true) { c =>
-      val (c2, str) = c.recv()
-      println(str)
-      c2.branch() match
-        case Left(c) =>
-          Som(c.rec_top())
-        case Right(c) =>
-          c.close()
-          None
-    }
 
 object EchoClient:
   def readLine(): String = ""

@@ -42,8 +42,8 @@ type Dual[P <: Session] <: Session = P match
 
 object Chan:
   def apply[P <: Session]():
-    ( Sigma {type A = Chan; type B = a.PCap[PNil, P]^ },
-      Sigma {type A = Chan; type B = a.PCap[PNil, Dual[P]]^ }) =
+    ( Sigma { type A = Chan; type B = a.PCap[PNil, P]^ },
+      Sigma { type A = Chan; type B = a.PCap[PNil, Dual[P]]^ }) =
     val c1 = new Chan
     val c2 = new Chan
     ( new Sigma:
@@ -93,6 +93,13 @@ object Chan:
       //   r(using c.asInstanceOf[chan.PCap[E, R]])
       ???
 
+    def branch2[E <: PList, L <: Session, R <: Session, T](): chan.PCap[E, Branch[L, R]] ?=!>? Either[chan.PCap[E, L], chan.PCap[E, R]]^ =
+      ???
+
+    // def branch2[E <: PList, L <: Session, R <: Session, T]: (chan.PCap[E, Branch[L, R]]^) ?=!>
+    //   (chan.PCap[E, Branch[L, R]]^) ?=!> Unit = ???
+
+
     // def branch2[E <: PList, L <: Session, R <: Session](using c: chan.PCap[E, Branch[L, R]]^)
     //   [T](l: chan.PCap[E, L]^ ?=> T^)(r: chan.PCap[E, R]^ ?=> T^): (T^) @kill(c) =
     //   if ??? then
@@ -118,15 +125,48 @@ type EchoSInner = Recv[String, Branch[Var[0], End]]
 type EchoServer = Rec[EchoSInner]
 type EchoCInner = Dual[EchoSInner]
 type EchoClient = Dual[EchoServer]
-type Simple = Send[Int, Recv[String, End]]
+
+def loop[T, U](using c: T^)(cond: => Boolean)(body: T ?=!>? Either[T, U]): ((U^) ?<= Unit) @kill(c) = ???
+
+def ifC[T, B1, B2](using c: T^)(cond: => Boolean)[A1](tbranch: (T^) ?=!> ((B1^) ?<= A1))(ebranch: (T^) ?=!> ((B2^) ?<= (A1))): ((Either[B1, B2]^) ?<= A1) @kill(c) = ???
+
+def matchC[A, B, T](using c: Either[A, B]^)[U](left: (A^) ?=!> ((T^) ?<= U))(right: (B^) ?=!> ((T^) ?<= U)): ((T^) ?<= U) @kill(c) =
+  ???
 
 object EchoServer:
+  def apply2(chan: Chan): (chan.PCap[PNil, EchoServer]^) ?=!> Unit =
+    chan.recPush()
+
+    loop[chan.PCap[EchoSInner :: PNil, EchoSInner], chan.PCap[EchoSInner :: PNil, End]] (true) {
+      println(chan.recv())
+      chan.branch2()
+    }
+
+    // loop[chan.PCap[EchoSInner :: PNil, EchoSInner], chan.PCap[EchoSInner :: PNil, End]] (true) {
+    //   println(chan.recv())
+    //   chan.branch2()
+    //   matchC[chan.PCap[EchoSInner :: PNil, Var[0]], chan.PCap[EchoSInner :: PNil, EchoSInner :: End], NoState] {
+    //     chan.recTop()
+    //   } {
+    //     chan.close()
+    //   }
+    // }
+
+    type CS = EchoSinner :: PNil
+
+    // def recur(chan: Chan): (chan.PCap[CS, EchoSInner]^) ?=!> (chan.PCap[CS, Close]) =
+    //   chan.recv()
+    //   chan.branch2()
+    //   matchC[chan.PCap[CS, Var[0]], chan.PCap[CS, Close]] {
+    //     chan.recTop()
+    //     recur(chan)
+    //   }
+
   def apply(chan: Chan): (chan.PCap[PNil, EchoServer]^) ?=!> Unit = // chan.PCap[PNil, EchoServer] ?=!> Unit
     chan.recPush()
 
     def recur(chan: Chan): (chan.PCap[EchoSInner :: PNil, EchoSInner]^) ?=!> Unit =
-      val msg = chan.recv()
-      println(msg)
+      println(chan.recv())
       chan.branch {
         chan.recTop()
         recur(chan)

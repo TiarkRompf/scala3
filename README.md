@@ -76,7 +76,7 @@ def foo(f: ClosedFile^) =
 ```
 
 Importantly, the arguments must be *capabilities*, following the [definition](https://docs.scala-lang.org/scala3/reference/experimental/cc.html#capabilities-and-capturing-types) used by
-the Scala 3 capture checker. Passing a non-capability to `@kill` will not do anything.
+the Scala 3 capture checker. Passing a non-capability to `@kill` will have no effect.
 
 ### Returning Implicits
 
@@ -112,16 +112,20 @@ There were two major modifications to the compiler:
 
 - A new effect checking phase (`compiler/src/dotty/tools/dotc/eff/`)
   was added for destructive effects. It runs after
-  the capture checking phase.
+  the capture checking phase. The main effect checker is in `compiler/src/dotty/tools/dotc/eff/CheckEffects.scala`.
 
 - The typer (`compiler/src/dotty/tools/dotc/typer/Typer.scala`)
-  was modified to support `Sigma` types. The typer now performs
+  was modified to support `Sigma`types. The typer performs
   a type-directed ANF transform triggered by `Sigma` types.
 
-In addition, the capture checker was also modified for better support
-of higher-order functions, and `Sigma` types.
+In addition, the capture checker (`compiler/src/dotty/tools/dotc/eff/`)
+was also modified for better support of higher-order functions and `Sigma` types.
 Examples are found in the `ts-test/` folder.
 
 Running tests can be done by starting an `sbt` shell and then
 invoking `testCompilation captures` for capture checking tests,
-as well as `testCompilation typestate` for typestate tests.
+Note that test case `tests/run-custom-args/captures/minicheck.scala` may fail
+when running the test suite, but succeeds when running on its own (follow the reproduction
+instructions after running the test suite to reproduce on its own).
+
+Runnign the typestate tests can be done by invoking `testCompilation typestate`.
