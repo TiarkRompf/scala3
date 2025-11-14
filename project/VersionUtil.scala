@@ -23,22 +23,20 @@ object VersionUtil {
     }
   }
 
-  private lazy val git = {
-    val repo = new FileRepositoryBuilder()
-      .setMustExist(true)
-      .findGitDir()
-      .build()
-    new JGit(repo)
-  }
+  // private lazy val git = {
+  //   val repo = new FileRepositoryBuilder()
+  //     .setMustExist(true)
+  //     .findGitDir()
+  //     .build()
+  //   new JGit(repo)
+  // }
 
   /** Seven letters of the SHA hash is considered enough to uniquely identify a
    *  commit, albeit extremely large projects - such as the Linux kernel - need
    *  more letters to stay unique
    */
-  def gitHash: String = git.headCommitSha.substring(0, 7)
+  def gitHash: String = "ARTIFACT"
   def commitDate: String = {
-    val format = new SimpleDateFormat("yyyyMMdd")
-    format.setTimeZone(TimeZone.getTimeZone("UTC"))
-    format.format(git.headCommitDate)
+    "20251113"
   }
 }

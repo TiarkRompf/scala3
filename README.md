@@ -38,6 +38,8 @@ To use the compiler in a local project, run
 
 `sbt publishLocal`
 
+(you may ignore error messages during publishing process.)
+
 Then in the `build.sbt` file of the local project set
 
 `ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"`
