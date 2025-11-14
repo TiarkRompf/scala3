@@ -6295,6 +6295,10 @@ object Types extends TypeUtils {
           val cs =
             if deep && !isLiteral then CaptureSet.ofTypeDeeply(tp1)
             else CaptureSet.ofType(tp1, followResult = false)
+          if isLiteral && this.isInstanceOf[Substituters.SubstParamMap] then ref match
+            case pref: TypeParamRef if pref.paramInfo.upperBoundedByCap =>
+              cs.hasFreshCapSet = true
+            case _ =>
           (cs, isLiteral)
 
     /** Utility method. Maps the supertype of a type proxy. Returns the
