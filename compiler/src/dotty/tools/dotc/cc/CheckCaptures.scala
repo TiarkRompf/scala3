@@ -1351,57 +1351,13 @@ class CheckCaptures extends Recheck, SymTransformer:
           case _ =>
             foldOver(add, t)
 
-    /**
-     * Special hack just to support keeping nutypes after cc phase
-     * If a TermRef undergoes box adapatation on its underlying type, then
-     * the underlying type will be returned from checkConformsExpr -> checkConforms -> recheckFinish,
-     * resulting in the tree's nuType being set to the underlying type of the TermRef.
-     *
-     * This is very bad - example:
-     * val file: File^ = new File
-     * ...
-     * Tuple2.apply[Unit, box(File^)](..., file)
-     * Then file's type is a TermRef, and its underlying type is CapturingType(...)
-     * But checkConforms will return the underlying type, meaning the nuType of the Ident(file)
-     * will be set to CapturingType(), not TermRef, which is very bad since then
-     * the information that type is a reference to `file` is lost, and so
-     * problematic for tracking killed capabilities.
-     *
-     * It is also impossible to retrieve the TermRef from the symbol since the symbol is dependent
-     * on the tree's type.
-     */
+
     private def conformsSuccess(actual: Type, actualBoxed: Type, tree: Tree)(using Context): Type =
       actual match
         case actual: TermRef if !(actual eq actualBoxed) =>
           boxedTermRefs.update(actualBoxed, actual)
         case _ =>
       actualBoxed
-
-    /**
-     * Methods for debugging only:
-     */
-    // def dropAllAnnots(tpe: Type)(using Context) =
-    //   val tm = new TypeMap:
-    //     def apply(tp: Type) =
-    //       tp match
-    //         case AnnotatedType(parent, _) => apply(parent)
-    //         case _ => mapOver(tp)
-    //   tm(tpe)
-
-    // def getToBottom(tp: Type)(using Context): Unit =
-    //   tp.stripCapturing match
-    //     case defn.RefinedFunctionOf(mt1) =>
-    //       mt1.resultType.stripCapturing match
-    //         case defn.RefinedFunctionOf(mt2) =>
-    //           mt2.resultType.stripCapturing match
-    //             case typer.SigmaOps.Sigma2Type(_, scd) =>
-    //               println("GET TO BOTTOM =================")
-    //               println(scd.show)
-    //               println(scd.captureSet.elems)
-    //               println("==========================")
-    //             case _ =>
-    //         case _ =>
-    //     case _ =>
 
     /** Massage `actual` and `expected` types before checking conformance.
      *  Massaging is done by the methods following this one:
@@ -1430,30 +1386,6 @@ class CheckCaptures extends Recheck, SymTransformer:
               case _ =>
           conformsSuccess(actual, actualBoxed, tree)
         case fail: CompareFailure =>
-          // report.error(i"conforms failed for \n ${tree} \n Actual: $actual \n Expected: $expected",
-          //   tree.srcPos)
-          // actualBoxed.stripCapturing match
-          //   case defn.RefinedFunctionOf(amt) =>
-          //     expected1.stripCapturing match
-          //       case defn.RefinedFunctionOf(emt) =>
-          //         amt.resType.stripCapturing match
-          //           case defn.RefinedFunctionOf(art) =>
-          //             emt.resType.stripCapturing match
-          //               case defn.RefinedFunctionOf(ert) =>
-          //                 art.resultType.stripCapturing match
-          //                   case tp1 @ typer.SigmaOps.Sigma2Type(_, ascd) =>
-          //                     ert.resultType.stripCapturing match
-          //                       case tp2 @ typer.SigmaOps.Sigma2Type(_, escd) =>
-          //                         tp1.getScdAlias.foreach(a => println(a.show))
-          //                         tp2.getScdAlias.foreach(a => println(a.show))
-          //                         tp1.getScdAlias.foreach(a => println(a.isSigmaTypeMember))
-          //                         tp2.getScdAlias.foreach(a => println(a.isSigmaTypeMember))
-          //                       case _ =>
-          //                   case _ =>
-          //           case _ =>
-          //   case _ =>
-          // println("=========================")
-
           err.typeMismatch(tree.withType(actualBoxed), expected1,
               addApproxAddenda(
                   addenda ++ errorNotes(fail.errorNotes),

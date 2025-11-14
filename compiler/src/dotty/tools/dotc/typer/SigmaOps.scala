@@ -73,17 +73,15 @@ object SigmaOps:
       )
 
   // Sigma { type A = ... }
-  object SigmaAType // TODO
+  object SigmaAType
 
   // Sigma { type B = ... }
-  object SigmaBType // TODO
+  object SigmaBType
 
   // Sigma
-  object Sigma0Type // TODO
+  object Sigma0Type
 
   /**
-   * Hack for substituting in recursive types.
-   *
    * Consider pt = Sigma { type A = File; type B = a.IsOpen }
    * Then we want to summon a type of a.IsOpen, where
    * a is the expected tree. To do this,

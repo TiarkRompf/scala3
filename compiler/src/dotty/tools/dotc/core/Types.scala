@@ -6331,7 +6331,6 @@ object Types extends TypeUtils {
         case tp: LambdaType =>
           mapOverLambda(tp)
 
-        // TODO - make this cleaner!
         case tp: TypeAlias if tp.isSigmaTypeMember =>
           val res = derivedAlias(tp, this(tp.alias))
           res match

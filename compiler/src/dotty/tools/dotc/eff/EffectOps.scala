@@ -78,11 +78,6 @@ object KillOps:
         case KillType(_) => true
         case _ => false
 
-    // def derivedKillType(parent: Type, refs: List[Tree])(using Context): Type = tp match
-    //   case tp @ KillType(p, r) =>
-    //     if (parent eq p) && (refs eq r) then tp
-    //     else KillType(parent, refs)
-
   /**
    * trees1 is a kill set -
    * For trees1, trees2 where KillType(_, trees1), KillType(_, trees2)
@@ -112,25 +107,7 @@ object KillOps:
     (killsSelf, cleaned)
   end cleanSelfRef
 
-  /**
-   * Idea - if method type is a kill function, then
-   * remove all non-parameter block-local refs and add a function self ref.
-   *
-   * We do NOT want the default avoidance behavior for the kill annotation because what will happen is by
-   * default, avoidance replaces local TermRefs with their types, but then the problem is that replaced type
-   * is not a capability.
-   *
-   * The case for applied types is mainly because of how refined types work
-   * A refined function is something like RefinedType(AppliedType(), apply, MethodType(...))
-   * So the MethodType case will handle that, but the AppliedType still needs work, since the
-   * applied type will be the non-dependent function type, but it will still have the kill annotation
-   * in the last argument.
-   *
-   * The other way to avoid doing this is probably to drop all kill annotations in the parent
-   * of any refined function type after mapping over it in saturate. This solution means that the
-   * AppliedType is not going to be aligned with the refined function type, which could be bad so for now
-   * I'm going with handling AppliedTypes in avoidance.
-   */
+
   def avoidKill(tp: Type, symsToAvoid: => List[Symbol])(using Context): Type =
     lazy val forbidden = symsToAvoid.toSet
     val escapeMap = new TypeOps.AvoidMap:
@@ -150,7 +127,7 @@ object KillOps:
                 needsSelfRef = variance > 0
                 false
               case _ => true
-            }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
+            }.map(_.refTree) 
 
           val updatedRefs =
             if alreadyKillsSelf || needsSelfRef then
@@ -176,7 +153,7 @@ object KillOps:
                 needsSelfRef = variance > 0
                 false
               case _ => true
-            }.map(_.refTree) // TODO: figure out way to avoid using .refTree here
+            }.map(_.refTree)
 
           val updatedRefs =
             if alreadyKillsSelf || needsSelfRef then
@@ -209,20 +186,7 @@ object KillOps:
     escapeMap(tp)
   end avoidKill
 
-  /**
-   * Checks that the variables inside a kill annotation are well-formed
-   * Well-formedness conditions:
-   * 1. Must be non-empty
-   * 2. No duplicates allowed e.g. no kill(f, f).
-   * 3. Must be a capture trackable ref
-   * 4. Must not be a special capability
-   * 5. Kill annotation can only appear in (NOT YET CHECKED! TODO!)
-   *  a) At top-level of explicit DefDef tpt
-   *  b) As result type of a MethodType (e.g. A => B @kill(...) => C) should not be allowed
-   *
-   * Note for 5 - it is unclear whether this should be actulaly prevented or just do nothing
-   * (current behavior is do nothing since effect checker naturally does not handle such case.)
-   */
+
   def checkWellformed(annot: Tree)(using Context): Unit =
     val killedElems = annot.killedElems
     if killedElems.isEmpty then
@@ -308,13 +272,6 @@ object EffOps:
       case EffectType(parent, _, _) => parent
       case tp => tp
 
-  /**
-   * Well-formedness conditions:1
-   * 1. Both sets cannot be empty (one set can be empty)
-   * 2. No duplicates allowed within each set
-   * 3. All refs be a capture trackable ref
-   * 4. All refs must not be a special capability
-   */
   def checkWellformed(annot: Tree)(using Context): Unit =
     val killedElems = annot.killedElems
     val usedElems = annot.usedElems

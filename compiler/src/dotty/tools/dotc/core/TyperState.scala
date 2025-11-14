@@ -18,15 +18,6 @@ import scala.compiletime.uninitialized
 
 import ast.untpd
 
-/**
- * Core Invariant - only one FlowState object available at a time. This is because
- * when we push a new CPS expression to be transformed, we add it to the stmList
- * of the ctx at the point of type-checking the expression, which may differ from the
- * context at the point of performing the transformation (tryCatchCPS1).
- *
- * In particular, the typerState may be mutated, and so
- * the flowstate information is lost.
- */
 case class FlowState(private var _stmList: List[untpd.Tree], private var _count: Int) {
   def stmList: List[untpd.Tree] = _stmList
   def stmList_=(stmList: List[untpd.Tree]): Unit = _stmList = stmList
@@ -120,7 +111,7 @@ class TyperState() {
 
   private var myFlowState: FlowState = uninitialized
   def flowState: FlowState = myFlowState
-  def flowState_=(fs: FlowState): Unit = myFlowState = fs // please DO NOT use this
+  def flowState_=(fs: FlowState): Unit = myFlowState = fs
 
   def setFlowState(newStmList: List[untpd.Tree] = this.flowState.stmList,
       newCount: Int = this.flowState.count): Unit =

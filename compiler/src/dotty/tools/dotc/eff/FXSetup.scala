@@ -41,20 +41,12 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   2. Gives LazyTypes to symbols relating to method and val definitions in preparation
      for inference.
 
-    TODO - handle inline methods properly, right now we just
-    drop all kill annotations from inline methods.
   */
   class KillSetupTransformer(checker: CheckEffects.FXCheckerAPI) extends TreeMapWithPreciseStatContexts:
     import checker.*
     import cc.*
     import KillOps.*
 
-    /**
-     * Checks explicitly given types for the following conditions on kill effect:
-     * 1. Must be a capability with a non-empty capture set (TODO: relax this?).
-     * 2. Cannot be a pure type variable
-     * 3. Cannot be a object field (this is heuristically checked) unless path derives from Sigma
-     */
     def checkExplicitTT(tree: TypeTree)(using Context): Unit =
       val checkTraverser = new TypeTraverser:
         def traverse(tp: Type): Unit = tp match
@@ -89,13 +81,6 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                   case _ =>
             traverseChildren(parent)
           case defn.RefinedFunctionOf(mt) =>
-            /**
-             * We ignore the parent of refined functions because weird things happen. In particular, this
-             * causes the body parameter in withFile in the file example to break by saying that
-             * the capture set of c: f.isClosed^ is empty, since it gives it underlying type of Nothing.
-             * I don't know why this happens but it should be okay to ignore the parent for now since
-             * we really only care about the method type anyways.
-             */
             traverseChildren(mt)
           case _ => traverseChildren(tp)
         end traverse
@@ -116,7 +101,6 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
           // after postTyper all tpts should be TypeTrees, so should be ok
           // I also want this to fail if its not the case
           val forcedRes = tpt.asInstanceOf[TypeTree]
-          // the isEmpty case shouldn't matter
           val shouldNotCheckRhs = tree.rhs.isEmpty || sym.isInlineMethod || sym.isEffectivelyErased
 
           val newTree =
@@ -132,8 +116,6 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
               super.transform(tree).asInstanceOf[DefDef]
 
           if !shouldNotCheckRhs && forcedRes.isInferred && !sym.isConstructor then sym.info match
-            // todo: maybe too powerful?
-            // maybe only MethodType and PolyType?
             case fntpe @ FunctionOrMethod(params, resType) =>
               val newInfo = fntpe.derivedFunctionOrMethod(params, resType.dropAllKill)
               val updatedInfo = new LazyType:
@@ -141,11 +123,10 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
                   assert(ctx.phase == thisPhase.next, i"$sym")
                   denot.info = newInfo
                   val newResType = recheckDef(newTree, sym)
-                  // TODO - instead of making new methodType, try to do something like integrateRT?
                   denot.info = methodType(sym.paramSymss, newResType, false)
               updateInfo(sym, updatedInfo)
 
-            case exprType @ ExprType(resType) => // TODO write some tests for this
+            case exprType @ ExprType(resType) =>
               val newInfo = exprType.derivedExprType(resType.dropAllKill)
               val updatedInfo = new LazyType:
                 def complete(denot: SymDenotation)(using Context): Unit =

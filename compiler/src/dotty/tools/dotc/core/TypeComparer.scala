@@ -896,7 +896,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   recur(tp1.widen, tp2)
                 case _ =>
                   false
-              val res = { singletonOK
+              singletonOK
               || subCaptures(refs1, refs2).isOK
                   && sameBoxed(tp1, tp2, refs1)
                   && (recur(tp1.widen.stripCapturing, parent2)
@@ -904,25 +904,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                         // this alternative is needed in case the right hand side is a
                         // capturing type that contains the lhs as an alternative of a union type.
                     )
-              }
-              if !res then
-                // val parent1 = tp1 match
-                //   case CapturingType(parent1, _) => parent1
-                //   case _ => tp1
-
-                // println("===== AT TYPECOMPARER ========")
-                // // println(tp1.show)
-                // // println(tp2.show)
-                // // println(refs1.elems)
-                // // println(refs2.elems)
-                // val list1 = refs1.elems.iterator.toList
-                // println(refs1.show)
-                // println(refs2.show)
-                // println(subCaptures(refs1, refs2))
-                // println("==================")
-                res
-              else
-                res
           catch case ex: AssertionError =>
             println(i"assertion failed while compare captured $tp1 <:< $tp2")
             throw ex
@@ -1495,15 +1476,12 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
 
           if isEffCheckingOrSetup && onlyEffCheckKill then
             val tp1w = tp1.widen
-            if defn.isFunctionNType(tp2) then // is it possible for AppliedType to deriveFrom PolyFunction
+            if defn.isFunctionNType(tp2) then
               val defn.FunctionTypeOfMethod(info2) = tp2: @unchecked
               tp1w.widenDealias match
                 case tp1: RefinedType =>
-                  // println(s"${tp1.refinedInfo.show} <- tp1")
-                  // println(s"${info2.show} <- tp2")
                   normalComp && isSubEff(tp1.refinedInfo, info2)
 
-                // including the below case messes up the polarity.
                 case tp1: AppliedType if defn.isFunctionNType(tp1) =>
                   val defn.FunctionTypeOfMethod(info1) = tp1: @unchecked
                   normalComp && isSubEff(info1, info2)
@@ -2413,16 +2391,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
       info1.paramNames.hasSameLengthAs(info2.paramNames)
       && isSubEff(info1.resultType, info2.resultType.subst(info2, info1))
 
-    /*
-    * info1 <: info2 if info1 has no effect and info2 has effect
-    * if info1 has kill eff, we want to check that killset(info1) \subseteq killset(info2)
-    * idea:
-    * substitute info2's param refs into info1 to make substInfo1
-    * get killset of substInfo1
-    * get killset of info2
-    *
-    * then check if substInfo1 \subset info2
-    */
     case (info1: MethodType, info2: MethodType) =>
       if info1.resultType.isKillType then
         val substInfo1 = info1.resultType.subst(info1, info2)
@@ -2434,8 +2402,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           catch
             case e: IllegalCaptureRef =>
               println(s"${substInfo1.getKilled} <- INFO1 BAD CREF")
-              // println(s"${info1.show}")
-              // println(s"${info2.show}")
               List(GlobalCap)
 
         val killed2 =
@@ -2448,8 +2414,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
               println(s"${info2.resultType.getKilled} <- INFO2 BAD CREF")
               Nil
 
-        // the problem with the CS accountsFor is that TermParamRefs
-        // may have no info capture set, which means that they are automatically accounted for even w/empty killed2
         val cond1 =
           atCC(killed1.forall(CaptureSet(killed2*).accountsFor)) ||
           killed2.exists(_.isTerminalCapability)
@@ -2894,14 +2858,6 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
         NoType
     case tp1: AnnotatedType if !tp1.isRefining =>
       lub(tp1.underlying, tp2, isSoft = isSoft)
-    /**
-     * Note - this is really a hack and not the correct method to do lub.
-     * This is because lub is better done via constraint solving - e.g. the capture
-     * checker checks an If by checking the then branch with an unsolved
-     * expected type, and then populating it with the correct capture sets
-     * via subtyping of the actual type of a branch - the actual lub'd type is
-     * not really used.
-     */
     case tp1 @ FunctionOrMethod(argTypes1, resType1) if isEffCheckingOrSetup =>
       tp2 match
         case tp2 @ FunctionOrMethod(argTypes2, resType2) =>

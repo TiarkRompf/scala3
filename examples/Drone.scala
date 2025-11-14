@@ -3,7 +3,7 @@ import language.experimental.captureChecking
 import caps.*
 import typestate.*
 
-class Drone privatew():
+class Drone private():
   type Idle
   type Hovering
   type Flying
