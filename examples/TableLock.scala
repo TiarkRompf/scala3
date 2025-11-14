@@ -7,9 +7,9 @@ package LockableTable:
     type IsHeld // lock is locked, usable
     type IsReleased // lock is unlocked, unusable
 
-  class Table(n: Int) extends Lock:
+  class Table private (n: Int) extends Lock:
     private val table: Array[Array[Double]] = new Array[Array[Double]](n)
-    class Row private[LockableTable](m: Int) extends Lock:
+    class Row private[LockableTable] (m: Int) extends Lock:
       private val row: Array[Double] = table(m)
 
   object Table:
@@ -44,7 +44,7 @@ package LockableTable:
     def lockRow(row: table.Row): table.IsHeld^ ?=> row.IsReleased ?=!>? row.IsHeld =
       Sigma((), ().asInstanceOf[row.IsHeld])
 
-  def unlockRow(row: Table#Row): row.IsHeld ?=!>? row.IsReleased =
+  extension (row: Table#Row) def unlock(): row.IsHeld ?=!>? row.IsReleased =
     Sigma((), ().asInstanceOf[row.IsReleased])
 
   def computeOnRow(row: Table#Row): row.IsHeld^ ?=> Double = 5.0
@@ -58,7 +58,7 @@ object Main:
     val row = table.locateRow(5)
     table.lockRow(row)
     val result = computeOnRow(row)
-    unlockRow(row)
+    row.unlock()
     result
 
   def example2() =
@@ -68,7 +68,7 @@ object Main:
     table.lockRow(row)
     table.unlock() // unlock table first
     val result = computeOnRow(row)
-    unlockRow(row)
+    row.unlock()
     // table.lockRow(row) // error
     result
 

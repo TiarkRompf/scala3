@@ -4,7 +4,7 @@ import scala.io.Source
 import java.io.{FileWriter => JWriter}
 import typestate.*
 
-class File(val path: String):
+class File private(val path: String):
   type IsClosed
   type IsOpen
 
@@ -65,7 +65,7 @@ object Main:
     f.close()
     // f.write("BAD")
 
-  def test2(messages: List[String]) =
+  def test2(messages: List[String]): Unit =
     val f = File("a.txt")
     f.open()
     for msg <- messages do

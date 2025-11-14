@@ -3,27 +3,27 @@ import ExecutionContext.Implicits.global
 import language.experimental.captureChecking
 import typestate.*
 
-trait Elem(val name: String)
-class HTML() extends Elem("<html>")
-class HEAD() extends Elem("<head>")
-class TITLE() extends Elem("<title>")
-class BODY() extends Elem("<body>")
-class P() extends Elem("<p>")
-class TR() extends Elem("<tr>")
-class TD() extends Elem("<td>")
-class TABLE() extends Elem("<table>")
-class TBODY() extends Elem("<tbody>")
-class UL() extends Elem("<ul>")
-class LI() extends Elem("<li>")
+package ManualDOM:
+  trait Elem(val name: String)
+  class HTML() extends Elem("<html>")
+  class HEAD() extends Elem("<head>")
+  class TITLE() extends Elem("<title>")
+  class BODY() extends Elem("<body>")
+  class P() extends Elem("<p>")
+  class TR() extends Elem("<tr>")
+  class TD() extends Elem("<td>")
+  class TABLE() extends Elem("<table>")
+  class TBODY() extends Elem("<tbody>")
+  class UL() extends Elem("<ul>")
+  class LI() extends Elem("<li>")
 
-trait EList
-class ENil extends EList
-class ::[E <: Elem, L <: EList] extends EList
+  trait EList
+  class ENil extends EList
+  class ::[E <: Elem, L <: EList] extends EList
 
-class DOM:
-  type Elems[T <: EList]
+  class DOM private[ManualDOM]():
+    type Elems[T <: EList]
 
-object DOM:
   extension (tree: DOM)
     def open[E <: Elem, L <: EList](elem: E): tree.Elems[L] ?=!>? tree.Elems[E :: L] =
       Sigma((), ().asInstanceOf[tree.Elems[E :: L]])
@@ -39,15 +39,17 @@ object DOM:
       type Elems[ENil] = Unit
     body(dom)(())
 
-  def apply(): Sigma { type A = DOM; type B = a.Elems[ENil]^ } =
-    val dom = new DOM:
-      type Elems[ENil] = Unit
-    new Sigma {
-      type A = DOM
-      type B = a.Elems[ENil]^
-      val a: dom.type = dom
-      val b: dom.Elems[ENil]^ = ()
-    }
+  object DOM:
+    def apply(): Sigma { type A = DOM; type B = a.Elems[ENil]^ } =
+      val dom = new DOM:
+        type Elems[ENil] = Unit
+      new Sigma {
+        type A = DOM
+        type B = a.Elems[ENil]^
+        val a: dom.type = dom
+        val b: dom.Elems[ENil]^ = ()
+      }
+end ManualDOM
 
 // Dummy classes simulating fetch API
 class Line:
@@ -83,7 +85,7 @@ def loop[T](using c: T^)(cond: => Boolean)(body: T ?=!>? T): ((T^) ?<= Unit) @ki
   else move[T]
 
 object Main:
-  import DOM.*
+  import ManualDOM.*
 
   def nextTR[L <: EList](tree: DOM): tree.Elems[TR :: L] ?=!>? tree.Elems[TR :: L] =
     tree.close(TR())

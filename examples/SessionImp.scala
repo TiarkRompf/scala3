@@ -6,50 +6,52 @@ import typestate.*
 import scala.annotation.tailrec
 import scala.compiletime.ops.int.S
 
-trait PList
-class PNil extends PList
-class ::[P <: Session, L <: PList] extends PList
+package Channel:
+  trait Session
+  class Send[T, P <: Session] extends Session
+  class Recv[T, P <: Session] extends Session
+  class Select[L <: Session, R <: Session] extends Session
+  class Branch[L <: Session, R <: Session] extends Session
+  class Rec[P <: Session] extends Session
+  class Var[N <: Int] extends Session
+  class End extends Session
 
-class Chan:
-  type PCap[E <: PList, P <: Session]
-  private var _isOpen = true
-  def isOpen = _isOpen
+  type Dual[P <: Session] <: Session = P match
+    case Send[t, p] => Recv[t, Dual[p]]
+    case Recv[t, p] => Send[t, Dual[p]]
+    case Select[l, r] => Branch[Dual[l], Dual[r]]
+    case Branch[l, r] => Select[Dual[l], Dual[r]]
+    case Rec[p] => Rec[Dual[p]]
+    case Var[n] => Var[n]
+    case End => End
 
-trait Session
-class Send[T, P <: Session] extends Session
-class Recv[T, P <: Session] extends Session
-class Select[L <: Session, R <: Session] extends Session
-class Branch[L <: Session, R <: Session] extends Session
-class Rec[P <: Session] extends Session
-class Var[N <: Int] extends Session
-class End extends Session
+  trait PList
+  class PNil extends PList
+  class ::[P <: Session, L <: PList] extends PList
 
-type Dual[P <: Session] <: Session = P match
-  case Send[t, p] => Recv[t, Dual[p]]
-  case Recv[t, p] => Send[t, Dual[p]]
-  case Select[l, r] => Branch[Dual[l], Dual[r]]
-  case Branch[l, r] => Select[Dual[l], Dual[r]]
-  case Rec[p] => Rec[Dual[p]]
-  case Var[n] => Var[n]
-  case End => End
+  class Chan private[Channel]():
+    type PCap[E <: PList, P <: Session]
+    private var _isOpen = true
+    def isOpen = _isOpen
+    private[Channel] def isOpen_=(b : Boolean) = _isOpen = b
 
-object Chan:
-  def apply[P <: Session]():
-    ( Sigma { type A = Chan; type B = a.PCap[PNil, P]^ },
-      Sigma { type A = Chan; type B = a.PCap[PNil, Dual[P]]^ }) =
-    val c1 = new Chan
-    val c2 = new Chan
-    ( new Sigma:
-        type A = Chan
-        type B = a.PCap[PNil, P]^
-        val a: c1.type = c1
-        val b: c1.PCap[PNil, P]^ = ().asInstanceOf[c1.PCap[PNil, P]],
-      new Sigma:
-        type A = Chan
-        type B = a.PCap[PNil, Dual[P]]^
-        val a: c2.type = c2
-        val b: c2.PCap[PNil, Dual[P]]^ = ().asInstanceOf[c2.PCap[PNil, Dual[P]]]
-    )
+  object Chan:
+    def apply[P <: Session]():
+      ( Sigma { type A = Chan; type B = a.PCap[PNil, P]^ },
+        Sigma { type A = Chan; type B = a.PCap[PNil, Dual[P]]^ }) =
+      val c1 = new Chan
+      val c2 = new Chan
+      ( new Sigma:
+          type A = Chan
+          type B = a.PCap[PNil, P]^
+          val a: c1.type = c1
+          val b: c1.PCap[PNil, P]^ = ().asInstanceOf[c1.PCap[PNil, P]],
+        new Sigma:
+          type A = Chan
+          type B = a.PCap[PNil, Dual[P]]^
+          val a: c2.type = c2
+          val b: c2.PCap[PNil, Dual[P]]^ = ().asInstanceOf[c2.PCap[PNil, Dual[P]]]
+      )
 
   extension (chan: Chan)
     def recPush[E <: PList, P <: Session](): chan.PCap[E, Rec[P]] ?=!>? chan.PCap[P :: E, P] =
@@ -86,7 +88,10 @@ object Chan:
         r(using ().asInstanceOf[chan.PCap[E, R]])
 
     def close[E <: PList](): (chan.PCap[E, End]^) ?=!> Unit =
-      chan._isOpen = false
+      chan.isOpen = false
+end Channel
+
+import Channel.*
 
 type EchoSInner = Recv[String, Branch[Var[0], End]]
 type EchoServer = Rec[EchoSInner]
