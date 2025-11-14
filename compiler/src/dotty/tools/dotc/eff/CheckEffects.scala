@@ -563,8 +563,6 @@ class CheckEffects extends Recheck:
           val refs1 = refs.filterConserve: ref =>
             ref.tpe match
               case _: ConstantType => false
-              // TODO fix TypeRefs -> problem is typerefs are both generics and "literals"
-              // case _: TypeRef => false
               case tp: CoreCapability if tp.isTerminalCapability => false
               case selfRef: CoreCapability if ref.symbol.isFuncSelfRef =>
                 killsSelf = true
@@ -600,8 +598,9 @@ class CheckEffects extends Recheck:
           def checkIfKilledField(refs: Refs)(using Context): Unit =
             for ref <- refs do
               ref match
-                case TermRef(inner: TermRef, _) if !inner.widen.isSigma =>
-                  report.error(s"Cannot kill object field ${ref}", tree.srcPos)
+                case TermRef(inner: TermRef, _) if !(inner.widen.isSigma ||
+                    inner.typeSymbol.derivesFrom(defn.TupleClass)) =>
+                  report.error(i"Cannot kill object field ${ref}", tree.srcPos)
                 case _ =>
 
           for arg <- killedArgs do

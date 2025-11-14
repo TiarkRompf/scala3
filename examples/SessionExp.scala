@@ -1,10 +1,10 @@
 // Based on https://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
-// Uses channel itself directly
+// Performs operations on channels directly
 import language.experimental.captureChecking
 import caps.*
-import typestate.*
 import scala.annotation.tailrec
 import scala.compiletime.ops.int.S
+import typestate.*
 
 trait Session
 class Send[T, P <: Session] extends Session
@@ -111,82 +111,3 @@ object Main:
     val (serverChan, clientChan) = Chan[EchoServer]()
     EchoServer(serverChan)
     EchoClient(clientChan)
-
-/*
-type AtmDeposit = Recv[Int, Send[Int, Var[0]]]
-type AtmWithdraw = Recv[Int, Select[Var[0], Var[0]]]
-type AtmInner = Branch[AtmDeposit, Branch[AtmWithdraw, End]]
-type Atm = Recv[String, Select[Rec[AtmInner], End]]
-
-type Client = Dual[Atm]
-type ClientInner = Dual[AtmInner]
-
-object Atm:
-  private def approved(id: String) = true
-  private def updateBal(amt: Int): Int = amt + 10
-
-  def apply(c: Chan[Unit, Atm]): Unit =
-    val (c1, id) = c.recv()
-    if !approved(id) then
-      c1.right().close()
-      return
-    else
-      val c2 = c1.left().rec_push()
-      @tailrec def recur(c: Chan[(AtmInner, Unit), AtmInner]): Unit =
-        c.offer() match
-          case Left(c) =>
-            val (c2, amt) = c.recv()
-            recur(c2.send(updateBal(amt)).rec_top())
-          case Right(c) =>
-            c.offer() match
-              case Left(c) =>
-                val (c2, amt) = c.recv()
-                if 10 >= amt then
-                  recur(c2.left().rec_top())
-                else
-                  recur(c2.right().rec_top())
-              case Right(c) =>
-                c.close()
-      end recur
-      recur(c2)
-      // var isOpen = true
-      // while (isOpen) do // not nice
-      //   c.offer() match
-      //     case Left(c1) =>
-      //       val (c2, amt) = c1.recv()
-      //       c = c2.send(updateBal(amt)).rec_top()
-      //     case Right(c1) =>
-      //       c1.offer() match
-      //         case Left(c1) =>
-      //           val (c2, amt) = c1.recv()
-      //           if (amt <= 10) then
-      //             c = c2.left().rec_top()
-      //           else
-      //             c = c2.right().rec_top()
-      //         case Right(c1) =>
-      //           c1.close()
-      //           isOpen = false
-
-type AtmClient = Dual[Atm]
-type AtmClientInner = Dual[AtmInner]
-
-object AtmClient:
-  val id: String = "A"
-  def clientDeposit(c: Chan[Unit, AtmClient]): Unit =
-    val c2 = c.send(id).offer() match
-      case Left(c) => c.rec_push()
-      case Right(c) =>
-        c.close()
-        return
-
-    val (c3, new_bal) = c2.left().send(100).recv()
-    println(s"New Balance: ${new_bal}")
-    c3.rec_top().right().right().close()
-
-object Main:
-  // import AtmClient.clientDeposit
-  // def atm_test() =
-  //   val (atm_chan, client_chan) = Chan[Atm]() // create new channels
-  //   Atm(atm_chan) // start atm server
-  //   clientDeposit(client_chan) // start a client
-*/

@@ -1,7 +1,7 @@
 import language.experimental.captureChecking
 import caps.*
-// import scala.concurrent.{ Future, ExecutionContext }
-// import ExecutionContext.Implicits.global
+import scala.concurrent.{ Future, ExecutionContext }
+import ExecutionContext.Implicits.global
 import typestate.*
 import scala.annotation.tailrec
 import scala.compiletime.ops.int.S
@@ -12,9 +12,6 @@ class ::[P <: Session, L <: PList] extends PList
 
 class Chan:
   type PCap[E <: PList, P <: Session]
-  // type ES[P <: Session] = this.PCap[PNil, P]
-  // type withProtocol[E <: PList, P <: Session, T] = (c: this.PCap[E, P]^) ?=> (T) @kill(c)
-  // type withEProtocol[P <: Session, T] = (c: this.PCap[PNil, P]^) ?=> (T) @kill(c)
   private var _isOpen = true
   def isOpen = _isOpen
 
@@ -26,8 +23,6 @@ class Branch[L <: Session, R <: Session] extends Session
 class Rec[P <: Session] extends Session
 class Var[N <: Int] extends Session
 class End extends Session
-// class Delegate[Chan <: Session, P <: Session] extends Session
-// class RecvChan[Chan <: Session, P <: Session]
 
 type Dual[P <: Session] <: Session = P match
   case Send[t, p] => Recv[t, Dual[p]]
@@ -58,101 +53,50 @@ object Chan:
 
   extension (chan: Chan)
     def recPush[E <: PList, P <: Session](): chan.PCap[E, Rec[P]] ?=!>? chan.PCap[P :: E, P] =
-      ???
-      // Sigma((), ().asInstanceOf[chan.PCap[P :: E, P]])
+      Sigma((), ().asInstanceOf[chan.PCap[P :: E, P]])
 
     def recTop[E <: PList, P <: Session](): chan.PCap[P :: E, Var[0]] ?=!>? chan.PCap[P :: E, P] =
-      ??? // c.asInstanceOf[chan.PCap[(P, E), P]]
+      Sigma((), ().asInstanceOf[chan.PCap[P :: E, P]])
 
     def recPop[E <: PList, P <: Session, N <: Int](): chan.PCap[P :: E, Var[S[N]]] ?=!>? chan.PCap[E, Var[N]] =
-      ??? // c.asInstanceOf[chan.PCap[E, Var[N]]]
+      Sigma((), ().asInstanceOf[chan.PCap[E, Var[N]]])
 
     def send[T, E <: PList, P <: Session](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P] =
-      ??? // c.asInstanceOf[chan.PCap[E, P]]
+      Sigma((), ().asInstanceOf[chan.PCap[E, P]])
 
     def recv[T, E <: PList, P <: Session](): (chan.PCap[E, Recv[T, P]]^) ?=!> ((chan.PCap[E, P]^) ?<= T) =
-      new Sigma:
-        type A = T
-        type B = chan.PCap[E, P]^
-        val a: T = ???
-        val b: chan.PCap[E, P]^ = ().asInstanceOf[chan.PCap[E, P]]
+      Sigma(???, ().asInstanceOf[chan.PCap[E, P]])
+      // new Sigma:
+      //   type A = T
+      //   type B = chan.PCap[E, P]^
+      //   val a: T = ???
+      //   val b: chan.PCap[E, P]^ = ().asInstanceOf[chan.PCap[E, P]]
 
     def left[E <: PList, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, L] =
-      ??? // c.asInstanceOf[chan.PCap[E, L]]
+      Sigma((), ().asInstanceOf[chan.PCap[E, L]])
 
     def right[E <: PList, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, R] =
-      ??? // c.asInstanceOf[chan.PCap[E, R]]
+      Sigma((), ().asInstanceOf[chan.PCap[E, R]])
 
+    def branch[E <: PList, L <: Session, R <: Session, T](using c: chan.PCap[E, Branch[L, R]]^)
+      (l: (chan.PCap[E, L]^) ?=!> T)(r: (chan.PCap[E, R]^) ?=!> T): T @kill(c) =
+      if ??? then
+        l(using ().asInstanceOf[chan.PCap[E, L]])
+      else
+        r(using ().asInstanceOf[chan.PCap[E, R]])
 
-    def branch2[E <: PList, L <: Session, R <: Session, T](): chan.PCap[E, Branch[L, R]] ?=!>? Either[chan.PCap[E, L], chan.PCap[E, R]]^ =
-      ???
-
-    // def branch2[E <: PList, L <: Session, R <: Session, T]: (chan.PCap[E, Branch[L, R]]^) ?=!>
-    //   (chan.PCap[E, Branch[L, R]]^) ?=!> Unit = ???
-
-
-    // def branch2[E <: PList, L <: Session, R <: Session](using c: chan.PCap[E, Branch[L, R]]^)
-    //   [T](l: chan.PCap[E, L]^ ?=> T^)(r: chan.PCap[E, R]^ ?=> T^): (T^) @kill(c) =
-    //   if ??? then
-    //     l(using c.asInstanceOf[chan.PCap[E, L]])
-    //   else
-    //     r(using c.asInstanceOf[chan.PCap[E, R]])
-
-    def close[E <: PList](): (chan.PCap[E, End]^) ?=> Unit =
+    def close[E <: PList](): (chan.PCap[E, End]^) ?=!> Unit =
       chan._isOpen = false
-
-    // def loop[T, U^](using c: T^{U})(cond: => Boolean)
-    // (body : k: T^{U} ?=> Sigma { type A = Unit; type B = T^{U}} @kill(k)): Unit @kill(c)
-
-    // def loop[E <: PList, P <: Session](using c: chan.PCap[E, P]^)(cond: => Boolean)
-    // (body: (k: chan.PCap[E, P]^) ?=> Option[chan.PCap[E, P]^] @kill(k)): Unit @kill(c) =
-    //   if cond then
-    //     body(using c) match
-    //       case Some(c) =>
-    //         chan.loop(using c)(cond)(body)
-    //       case None =>
 
 type EchoSInner = Recv[String, Branch[Var[0], End]]
 type EchoServer = Rec[EchoSInner]
 type EchoCInner = Dual[EchoSInner]
 type EchoClient = Dual[EchoServer]
 
-def loop[T, U](using c: T^)(cond: => Boolean)(body: T ?=!>? Either[T, U]): ((U^) ?<= Unit) @kill(c) = ???
-
-def ifC[T, B1, B2](using c: T^)(cond: => Boolean)[A1](tbranch: (T^) ?=!> ((B1^) ?<= A1))(ebranch: (T^) ?=!> ((B2^) ?<= (A1))): ((Either[B1, B2]^) ?<= A1) @kill(c) = ???
-
-def matchC[A, B, T](using c: Either[A, B]^)[U](left: (A^) ?=!> ((T^) ?<= U))(right: (B^) ?=!> ((T^) ?<= U)): ((T^) ?<= U) @kill(c) =
-  ???
+def cFuture[T](body: => T @kill(FUN)): Future[T] =
+  Future { body.asInstanceOf[T] }
 
 object EchoServer:
-  def apply2(chan: Chan): (chan.PCap[PNil, EchoServer]^) ?=!> Unit =
-    chan.recPush()
-
-    loop[chan.PCap[EchoSInner :: PNil, EchoSInner], chan.PCap[EchoSInner :: PNil, End]] (true) {
-      println(chan.recv())
-      chan.branch2()
-    }
-
-    // loop[chan.PCap[EchoSInner :: PNil, EchoSInner], chan.PCap[EchoSInner :: PNil, End]] (true) {
-    //   println(chan.recv())
-    //   chan.branch2()
-    //   matchC[chan.PCap[EchoSInner :: PNil, Var[0]], chan.PCap[EchoSInner :: PNil, EchoSInner :: End], NoState] {
-    //     chan.recTop()
-    //   } {
-    //     chan.close()
-    //   }
-    // }
-
-    type CS = EchoSinner :: PNil
-
-    // def recur(chan: Chan): (chan.PCap[CS, EchoSInner]^) ?=!> (chan.PCap[CS, Close]) =
-    //   chan.recv()
-    //   chan.branch2()
-    //   matchC[chan.PCap[CS, Var[0]], chan.PCap[CS, Close]] {
-    //     chan.recTop()
-    //     recur(chan)
-    //   }
-
   def apply(chan: Chan): (chan.PCap[PNil, EchoServer]^) ?=!> Unit = // chan.PCap[PNil, EchoServer] ?=!> Unit
     chan.recPush()
 
@@ -266,12 +210,12 @@ object AtmClient:
       chan.close()
     }
 
-// object Main:
-//   def echotest() =
-//     val (serverChan, clientChan) = Chan[EchoServer]()
-//     Future {
-//       EchoServer(serverChan)
-//     }
-//     Future {
-//       EchoClient(clientChan)
-//     }
+object Main:
+  def echotest() =
+    val (serverChan, clientChan) = Chan[EchoServer]()
+    cFuture {
+      EchoServer(serverChan)
+    }
+    cFuture {
+      EchoClient(clientChan)
+    }

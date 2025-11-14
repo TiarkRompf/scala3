@@ -1,4 +1,4 @@
-# Scala 3 with Capability-Based Typestate
+# Scala 3 with Revocable Capabilities
 
 ## Overview
 This is a fork of the [Scala 3 compiler](https://github.com/scala/scala3)
@@ -69,4 +69,11 @@ Running capture checker tests can be done by starting an `sbt` shell and then in
 instructions after running the test suite to reproduce on its own).
 
 The `examples` directory contains code examples, including
-all examples listed in the paper.
+all case studies from the paper:
+
+| Paper Section        |  File (in `examples/`)    |
+|----------------------|----------|
+| 3.1 Table Locking  | `TableLock.scala` |
+| 3.2 DOM Trees      | `DOM.scala`   |
+| 3.3 Session Types  | `SessionImp.scala`   |
+| 3.4 Control Flow   | `ControlFlow.scala`   |
