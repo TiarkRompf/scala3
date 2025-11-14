@@ -21,8 +21,6 @@ import util.Property
 import StdNames.nme
 import annotation.constructorOnly
 import annotation.tailrec
-import dotty.tools.dotc.cc.boxed
-
 object Recheck:
   import tpd.*
 
@@ -346,6 +344,12 @@ abstract class Recheck extends Phase, SymTransformer:
               assert(formals.isEmpty)
               Nil
           val argTypes = recheckArgs(tree.args, formals, fntpe.paramRefs)
+          // if (tree.fun.symbol.name.toString == "bad") then
+          //   val argtpe = argTypes.head
+          //   val formal = formals.head
+          //   println(formal)
+          //   println(argtpe)
+          //   println(argtpe.deepCaptureSet)
           recheckApplication(tree, qualType, fntpe, argTypes)
             //.showing(i"typed app $tree : $fntpe with ${tree.args}%, % : $argTypes%, % = $result")
         case tp =>

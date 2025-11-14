@@ -1015,6 +1015,10 @@ class Definitions {
 
   @tu lazy val PureClass: Symbol = requiredClass("scala.Pure")
 
+  @tu lazy val EitherTypeRef: TypeRef = requiredClassRef("scala.util.Either")
+  @tu lazy val LeftTypeRef: TypeRef = requiredClassRef("scala.util.Left")
+  @tu lazy val RightTypeRef: TypeRef = requiredClassRef("scala.util.Right")
+
   // Annotation base classes
   @tu lazy val AnnotationClass: ClassSymbol = requiredClass("scala.annotation.Annotation")
   @tu lazy val StaticAnnotationClass: ClassSymbol = requiredClass("scala.annotation.StaticAnnotation")

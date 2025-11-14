@@ -1,5 +1,4 @@
 import language.experimental.captureChecking
-import caps.*
 import typestate.*
 
 class File(val path: String):

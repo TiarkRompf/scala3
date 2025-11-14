@@ -52,11 +52,6 @@ package LockableTable:
 object Main:
   import LockableTable.*
 
-  def main(args: Array[String]): Unit =
-    example1()
-    example2()
-    example3()
-
   def example1() =
     val table = Table(40)
     table.lock()
@@ -90,6 +85,7 @@ object Main:
     table2.lockRow(row2)
     val data = computeOnRow(row2)
 
-  // def example2() =
-  //   val table = Table(40)
-
+  def main(args: Array[String]): Unit =
+    example1()
+    example2()
+    example3()
