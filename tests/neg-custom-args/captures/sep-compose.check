@@ -105,7 +105,7 @@
    |
    |  Hidden set of current argument        : {f}
    |  Hidden footprint of current argument  : {f, a, io}
-   |  Capture set of function prefix        : {p1}
+   |  Capture set of function prefix        : {p1, f}
    |  Footprint set of function prefix      : {p1, f, a, io}
    |  The two sets overlap at               : {f, a, io}
    |

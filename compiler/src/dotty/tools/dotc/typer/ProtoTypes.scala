@@ -536,8 +536,12 @@ object ProtoTypes {
         typer.typedUnadapted(_, wideFormal, locked)(using argCtx),
         force = true)
       val targ1 = typer.adapt(targ, wideFormal, locked)
-      if wideFormal eq formal then targ1
-      else checkNoWildcardCaptureForCBN(targ1)
+      val result = if wideFormal eq formal then targ1
+        else checkNoWildcardCaptureForCBN(targ1)
+      result.tpe match
+        case _: ErrorType => result
+        case _ =>
+          typer.adapt2NonTail(arg, result, wideFormal, locked)
     }
 
     def checkNoWildcardCaptureForCBN(targ1: Tree)(using Context): Tree = {

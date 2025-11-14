@@ -405,6 +405,14 @@ extension (tp: Type)
     RefinedType(tp, name,
       AnnotatedType(rinfo, Annotation(defn.RefineOverrideAnnot, util.Spans.NoSpan)))
 
+  def upperBoundedByCap(using Context): Boolean =
+    tp match
+      case bounds: TypeBounds => bounds.hiBound.stripCapturing match
+        case hi: TypeRef if hi.derivesFrom(defn.Caps_CapSet) =>
+          bounds.hiBound.captureSet.containsTerminalCapability
+        case _ => false
+      case _ => false
+
 extension (tp: MethodType)
   /** A method marks an existential scope unless it is the prefix of a curried method */
   def marksExistentialScope(using Context): Boolean =

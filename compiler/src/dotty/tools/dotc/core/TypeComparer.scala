@@ -4,7 +4,7 @@ package core
 
 import Types.*, Contexts.*, Symbols.*, Flags.*, Names.*, NameOps.*, Denotations.*
 import Decorators.*
-import Phases.{gettersPhase, elimByNamePhase}
+import Phases.{gettersPhase, elimByNamePhase, checkCapturesPhase}
 import StdNames.nme
 import TypeOps.refineUsingParent
 import collection.mutable
@@ -23,9 +23,14 @@ import typer.Applications.productSelectorTypes
 import reporting.trace
 import annotation.constructorOnly
 import cc.*
-import Capabilities.Capability
+import Capabilities.*
 import NameKinds.WildcardParamName
 import MatchTypes.isConcrete
+
+import eff.*, CheckEffects.*, KillOps.*
+import typer.SigmaOps.markSigmaMembers
+
+var debugFlag = false
 
 /** Provides methods to compare types.
  */
@@ -358,7 +363,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
       case tp2: LazyRef =>
         isBottom(tp1)
         || !tp2.evaluating && recur(tp1, tp2.ref)
-      case CapturingType(_, _) =>
+      case CapturingType(_, _) if !isEffCheckingOrSetup =>
         secondTry
       case tp2: AnnotatedType if !tp2.isRefining =>
         recur(tp1, tp2.parent)
@@ -533,7 +538,13 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
 
         res
 
-      case tp1 @ CapturingType(parent1, refs1) =>
+      /**
+       * Note: we check this case only if it is not in the effect checking/setup since
+       * the capture sets are already solved during the capture checker. In addition,
+       * the CapturingType(...) unwrapper is only available during the capture checker/effect
+       * checker, so this restricts it to being only in the capture checker.
+       */
+      case tp1 @ CapturingType(parent1, refs1) if !isEffCheckingOrSetup =>
         def compareCapturing =
           if tp2.isAny then true
           else if subCaptures(refs1, tp2.captureSet).isOK && sameBoxed(tp1, tp2, refs1)
@@ -683,6 +694,17 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   case _ =>
           end if
 
+          if isEffCheckingOrSetup && onlyEffCheckKill then
+            if defn.isFunctionType(tp2) then
+              if tp2.derivesFrom(defn.PolyFunctionClass) then
+                return isSubEff(tp1.member(nme.apply).info, tp2.refinedInfo)
+              else
+                tp1w.widenDealias match
+                  case tp1: RefinedType =>
+                    return isSubEff(tp1.refinedInfo, tp2.refinedInfo)
+                  case _ =>
+          end if
+
           val skipped2 = skipMatching(tp1w, tp2)
           if (skipped2 eq tp2) || !Config.fastPathForRefinedSubtype then
             if containsAnd(tp1) then
@@ -702,6 +724,8 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
             else
               compareRefinedSlow || fourthTry
           else // fast path, in particular for refinements resulting from parameterization.
+            tp2.markSigmaMembers
+            tp1w.markSigmaMembers
             isSubRefinements(tp1w.asInstanceOf[RefinedType], tp2, skipped2) &&
             recur(tp1, skipped2)
         end compareRefined
@@ -847,8 +871,14 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           case _ =>
             false
         }
-        compareTypeBounds
-      case CapturingType(parent2, refs2) =>
+
+        tp2 match
+          case tp2: TypeAlias if tp2.isSigmaTypeMember => tp1 match
+            case tp1: TypeAlias if tp1.isSigmaTypeMember =>
+              isSubType(tp1.dropAlias, tp2.dropAlias)
+            case _ => compareTypeBounds
+          case _ => compareTypeBounds
+      case CapturingType(parent2, refs2) if !isEffCheckingOrSetup =>
         def compareCapturing: Boolean =
           val refs1 = tp1.captureSet
           try
@@ -866,7 +896,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                   recur(tp1.widen, tp2)
                 case _ =>
                   false
-              singletonOK
+              val res = { singletonOK
               || subCaptures(refs1, refs2).isOK
                   && sameBoxed(tp1, tp2, refs1)
                   && (recur(tp1.widen.stripCapturing, parent2)
@@ -874,6 +904,25 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                         // this alternative is needed in case the right hand side is a
                         // capturing type that contains the lhs as an alternative of a union type.
                     )
+              }
+              if !res then
+                // val parent1 = tp1 match
+                //   case CapturingType(parent1, _) => parent1
+                //   case _ => tp1
+
+                // println("===== AT TYPECOMPARER ========")
+                // // println(tp1.show)
+                // // println(tp2.show)
+                // // println(refs1.elems)
+                // // println(refs2.elems)
+                // val list1 = refs1.elems.iterator.toList
+                // println(refs1.show)
+                // println(refs2.show)
+                // println(subCaptures(refs1, refs2))
+                // println("==================")
+                res
+              else
+                res
           catch case ex: AssertionError =>
             println(i"assertion failed while compare captured $tp1 <:< $tp2")
             throw ex
@@ -1428,7 +1477,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
           canConstrain(param2) && canInstantiate(param2) ||
           compareLower(bounds(param2), tyconIsTypeRef = false)
         case tycon2: TypeRef =>
-          isMatchingApply(tp1)
+          val normalComp = isMatchingApply(tp1)
           || byGadtBounds
           || defn.isCompiletimeAppliedType(tycon2.symbol)
               && compareCompiletimeAppliedType(tp2, tp1, fromBelow = true)
@@ -1443,6 +1492,25 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
                 case _ =>
                   fourthTry
           || tryLiftedToThis2
+
+          if isEffCheckingOrSetup && onlyEffCheckKill then
+            val tp1w = tp1.widen
+            if defn.isFunctionNType(tp2) then // is it possible for AppliedType to deriveFrom PolyFunction
+              val defn.FunctionTypeOfMethod(info2) = tp2: @unchecked
+              tp1w.widenDealias match
+                case tp1: RefinedType =>
+                  // println(s"${tp1.refinedInfo.show} <- tp1")
+                  // println(s"${info2.show} <- tp2")
+                  normalComp && isSubEff(tp1.refinedInfo, info2)
+
+                // including the below case messes up the polarity.
+                case tp1: AppliedType if defn.isFunctionNType(tp1) =>
+                  val defn.FunctionTypeOfMethod(info1) = tp1: @unchecked
+                  normalComp && isSubEff(info1, info2)
+                case _ =>
+                  normalComp
+            else normalComp
+          else normalComp
 
         case tv: TypeVar =>
           if tv.isInstantiated then
@@ -2290,7 +2358,7 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
             val paramsMatch =
               if precise then
                 isSameTypeWhenFrozen(formal1, formal2a)
-              else if isCaptureCheckingOrSetup then
+              else if isCaptureCheckingOrSetup || isEffCheckingOrSetup then
                 // allow to constrain capture set variables
                 isSubType(formal2a, formal1)
               else
@@ -2327,6 +2395,74 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
     }
     loop(tp1.paramInfos, tp2.paramInfos)
   }
+
+  /**
+   *  Compares two MethodOrPoly types to
+   *  check if A -> B @kill <: A -> B @kill
+   *
+   *  The infos should both be saturated (no FUN in killset).
+   *  Note that err.typeMismatch also calls <:<, which means that FUN can appear in
+   *  the killset since we use the non-saturated versions of the types in the error message. This is why
+   *  we filter out FUN even though it shouldn't appear in regular subtyping due to saturation.
+   *
+   *  Usually function parameters are invariant, but we relax it here to be contravariant (same as isSubInfo).
+   */
+  def isSubEff(info1: Type, info2: Type)(using Context): Boolean = (info1, info2) match
+    // for poly should be like PolyType(args, MethodType(...))
+    case (info1: PolyType, info2: PolyType) =>
+      info1.paramNames.hasSameLengthAs(info2.paramNames)
+      && isSubEff(info1.resultType, info2.resultType.subst(info2, info1))
+
+    /*
+    * info1 <: info2 if info1 has no effect and info2 has effect
+    * if info1 has kill eff, we want to check that killset(info1) \subseteq killset(info2)
+    * idea:
+    * substitute info2's param refs into info1 to make substInfo1
+    * get killset of substInfo1
+    * get killset of info2
+    *
+    * then check if substInfo1 \subset info2
+    */
+    case (info1: MethodType, info2: MethodType) =>
+      if info1.resultType.isKillType then
+        val substInfo1 = info1.resultType.subst(info1, info2)
+        val killed1 =
+          try
+            substInfo1.getKilled
+              .filterConserve(!_.symbol.isFuncSelfRef)
+              .flatMap(_.toCapabilities)
+          catch
+            case e: IllegalCaptureRef =>
+              println(s"${substInfo1.getKilled} <- INFO1 BAD CREF")
+              // println(s"${info1.show}")
+              // println(s"${info2.show}")
+              List(GlobalCap)
+
+        val killed2 =
+          try
+            info2.resultType.getKilled
+              .filterConserve(!_.symbol.isFuncSelfRef)
+              .flatMap(_.toCapabilities)
+          catch
+            case e: IllegalCaptureRef =>
+              println(s"${info2.resultType.getKilled} <- INFO2 BAD CREF")
+              Nil
+
+        // the problem with the CS accountsFor is that TermParamRefs
+        // may have no info capture set, which means that they are automatically accounted for even w/empty killed2
+        val cond1 =
+          atCC(killed1.forall(CaptureSet(killed2*).accountsFor)) ||
+          killed2.exists(_.isTerminalCapability)
+
+        cond1 &&
+          matchingMethodParams(info1, info2, precise = false) &&
+          isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+      else
+        matchingMethodParams(info1, info2, precise = false) &&
+        isSubEff(info1.resultType.dropTopLevelKill, info2.resultType.subst(info2, info1).dropTopLevelKill)
+    case _ =>
+      isSubType(info1, info2)
+  end isSubEff
 
   // Type equality =:=
 
@@ -2758,6 +2894,29 @@ class TypeComparer(@constructorOnly initctx: Context) extends ConstraintHandling
         NoType
     case tp1: AnnotatedType if !tp1.isRefining =>
       lub(tp1.underlying, tp2, isSoft = isSoft)
+    /**
+     * Note - this is really a hack and not the correct method to do lub.
+     * This is because lub is better done via constraint solving - e.g. the capture
+     * checker checks an If by checking the then branch with an unsolved
+     * expected type, and then populating it with the correct capture sets
+     * via subtyping of the actual type of a branch - the actual lub'd type is
+     * not really used.
+     */
+    case tp1 @ FunctionOrMethod(argTypes1, resType1) if isEffCheckingOrSetup =>
+      tp2 match
+        case tp2 @ FunctionOrMethod(argTypes2, resType2) =>
+          if (argTypes1.length != argTypes2.length) then NoType
+          else
+            tp1.derivedFunctionOrMethod(
+              argTypes1.zip(argTypes2).foldRight(Nil) { case ((arg1, arg2), args) =>
+                glb(arg1, arg2) :: args
+              },
+              KillType(
+                lub(resType1.dropTopLevelKill, resType2.dropTopLevelKill),
+                resType1.getKilled.killUnion(resType2.getKilled)
+              )
+            )
+        case _ => NoType
     case _ =>
       NoType
   }
@@ -3283,7 +3442,7 @@ object TypeComparer {
   type CoveredStatus = CoveredStatus.Repr
 
   def topLevelSubType(tp1: Type, tp2: Type)(using Context): Boolean =
-    comparing(_.topLevelSubType(tp1, tp2))
+  comparing(_.topLevelSubType(tp1, tp2))
 
   def necessarySubType(tp1: Type, tp2: Type)(using Context): Boolean =
     comparing(_.necessarySubType(tp1, tp2))

@@ -26,6 +26,8 @@ import reporting.{trace, Message, OverrideError}
 import Annotations.Annotation
 import Capabilities.*
 
+import typer.SigmaOps.*
+
 /** The capture checker */
 object CheckCaptures:
   import ast.tpd.*
@@ -210,6 +212,11 @@ object CheckCaptures:
       /** The "use set", i.e. the capture set marked as free at this node. */
       def markedFree: CaptureSet
 
+    extension (sym: Symbol)
+      def captureVars: CaptureSet
+
+    extension (tp: Type)
+      def boxedToTermRef: Type
   end CheckerAPI
 
 class CheckCaptures extends Recheck, SymTransformer:
@@ -224,8 +231,15 @@ class CheckCaptures extends Recheck, SymTransformer:
 
   override def isRunnable(using Context) = super.isRunnable && Feature.ccEnabledSomewhere
 
-  def newRechecker()(using Context) = CaptureChecker(ctx)
+  // comment this out for original capture checker
+  var checker: CaptureChecker | Null = null
 
+  def newRechecker()(using Context) =
+    checker = new CaptureChecker(ctx)
+    checker.nn
+
+  // comment this out for original capture checker
+  override def transformSym(symd: SymDenotation)(using Context): SymDenotation = symd
   override def run(using Context): Unit =
     if Feature.ccEnabled then
       super.run
@@ -233,6 +247,9 @@ class CheckCaptures extends Recheck, SymTransformer:
   val ccState1 = new CCState // Dotty problem: Rename to ccState ==> Crash in ExplicitOuter
 
   class CaptureChecker(ictx: Context) extends Rechecker(ictx), CheckerAPI:
+
+    // comment this out for original capture checker
+    override def keepNuTypes(using Context): Boolean = true
 
     // println(i"checking ${ictx.source}"(using ictx))
 
@@ -263,6 +280,8 @@ class CheckCaptures extends Recheck, SymTransformer:
     /** The set of symbols that were rechecked via a completer */
     private val completed = new mutable.HashSet[Symbol]
 
+    private val boxedTermRefs = util.EqHashMap[Type, TermRef]()
+
     var needAnotherRun = false
 
     def resetIteration()(using Context): Unit =
@@ -275,6 +294,15 @@ class CheckCaptures extends Recheck, SymTransformer:
       def needsSepCheck: Boolean = sepCheckFormals.contains(tree)
       def formalType: Type = sepCheckFormals.getOrElse(tree, NoType)
       def markedFree = usedSet.getOrElse(tree, CaptureSet.empty)
+
+    extension (sym: Symbol)
+      def captureVars = myCapturedVars.getOrElse(sym, CaptureSet.empty)
+
+    extension (tp: Type)
+      def boxedToTermRef: Type =
+        boxedTermRefs.get(tp) match
+          case Some(ref) => ref
+          case None => tp
 
     /** Instantiate capture set variables appearing contra-variantly to their
      *  upper approximation.
@@ -910,8 +938,10 @@ class CheckCaptures extends Recheck, SymTransformer:
     override def recheckClosure(tree: Closure, pt: Type, forceDependent: Boolean)(using Context): Type =
       val cs = capturedVars(tree.meth.symbol)
       capt.println(i"typing closure $tree with cvs $cs")
-      super.recheckClosure(tree, pt, forceDependent).capturing(cs)
+      val closTpe = super.recheckClosure(tree, pt, forceDependent).capturing(cs)
         .showing(i"rechecked closure $tree / $pt = $result", capt)
+      tree.setNuType(closTpe)
+      closTpe
 
     /** Recheck a lambda of the form
      *      { def $anonfun(...) = ...; closure($anonfun, ...)}
@@ -1321,6 +1351,58 @@ class CheckCaptures extends Recheck, SymTransformer:
           case _ =>
             foldOver(add, t)
 
+    /**
+     * Special hack just to support keeping nutypes after cc phase
+     * If a TermRef undergoes box adapatation on its underlying type, then
+     * the underlying type will be returned from checkConformsExpr -> checkConforms -> recheckFinish,
+     * resulting in the tree's nuType being set to the underlying type of the TermRef.
+     *
+     * This is very bad - example:
+     * val file: File^ = new File
+     * ...
+     * Tuple2.apply[Unit, box(File^)](..., file)
+     * Then file's type is a TermRef, and its underlying type is CapturingType(...)
+     * But checkConforms will return the underlying type, meaning the nuType of the Ident(file)
+     * will be set to CapturingType(), not TermRef, which is very bad since then
+     * the information that type is a reference to `file` is lost, and so
+     * problematic for tracking killed capabilities.
+     *
+     * It is also impossible to retrieve the TermRef from the symbol since the symbol is dependent
+     * on the tree's type.
+     */
+    private def conformsSuccess(actual: Type, actualBoxed: Type, tree: Tree)(using Context): Type =
+      actual match
+        case actual: TermRef if !(actual eq actualBoxed) =>
+          boxedTermRefs.update(actualBoxed, actual)
+        case _ =>
+      actualBoxed
+
+    /**
+     * Methods for debugging only:
+     */
+    // def dropAllAnnots(tpe: Type)(using Context) =
+    //   val tm = new TypeMap:
+    //     def apply(tp: Type) =
+    //       tp match
+    //         case AnnotatedType(parent, _) => apply(parent)
+    //         case _ => mapOver(tp)
+    //   tm(tpe)
+
+    // def getToBottom(tp: Type)(using Context): Unit =
+    //   tp.stripCapturing match
+    //     case defn.RefinedFunctionOf(mt1) =>
+    //       mt1.resultType.stripCapturing match
+    //         case defn.RefinedFunctionOf(mt2) =>
+    //           mt2.resultType.stripCapturing match
+    //             case typer.SigmaOps.Sigma2Type(_, scd) =>
+    //               println("GET TO BOTTOM =================")
+    //               println(scd.show)
+    //               println(scd.captureSet.elems)
+    //               println("==========================")
+    //             case _ =>
+    //         case _ =>
+    //     case _ =>
+
     /** Massage `actual` and `expected` types before checking conformance.
      *  Massaging is done by the methods following this one:
      *   - align dependent function types and add outer references in the expected type
@@ -1336,15 +1418,42 @@ class CheckCaptures extends Recheck, SymTransformer:
       if actualBoxed eq actual then
         // Only `addOuterRefs` when there is no box adaptation
         expected1 = addOuterRefs(expected1, actual, tree.srcPos)
+
+      actualBoxed.markSigmaMembers
+      expected1.markSigmaMembers
+
       ccState.testOK(isCompatible(actualBoxed, expected1)) match
         case CompareResult.OK =>
           if debugSuccesses then tree match
               case Ident(_) =>
                 println(i"SUCCESS $tree for $actual <:< $expected:\n${TypeComparer.explained(_.isSubType(actualBoxed, expected1))}")
               case _ =>
-          actualBoxed
+          conformsSuccess(actual, actualBoxed, tree)
         case fail: CompareFailure =>
-          capt.println(i"conforms failed for ${tree}: $actual vs $expected")
+          // report.error(i"conforms failed for \n ${tree} \n Actual: $actual \n Expected: $expected",
+          //   tree.srcPos)
+          // actualBoxed.stripCapturing match
+          //   case defn.RefinedFunctionOf(amt) =>
+          //     expected1.stripCapturing match
+          //       case defn.RefinedFunctionOf(emt) =>
+          //         amt.resType.stripCapturing match
+          //           case defn.RefinedFunctionOf(art) =>
+          //             emt.resType.stripCapturing match
+          //               case defn.RefinedFunctionOf(ert) =>
+          //                 art.resultType.stripCapturing match
+          //                   case tp1 @ typer.SigmaOps.Sigma2Type(_, ascd) =>
+          //                     ert.resultType.stripCapturing match
+          //                       case tp2 @ typer.SigmaOps.Sigma2Type(_, escd) =>
+          //                         tp1.getScdAlias.foreach(a => println(a.show))
+          //                         tp2.getScdAlias.foreach(a => println(a.show))
+          //                         tp1.getScdAlias.foreach(a => println(a.isSigmaTypeMember))
+          //                         tp2.getScdAlias.foreach(a => println(a.isSigmaTypeMember))
+          //                       case _ =>
+          //                   case _ =>
+          //           case _ =>
+          //   case _ =>
+          // println("=========================")
+
           err.typeMismatch(tree.withType(actualBoxed), expected1,
               addApproxAddenda(
                   addenda ++ errorNotes(fail.errorNotes),
@@ -1363,7 +1472,21 @@ class CheckCaptures extends Recheck, SymTransformer:
         if defn.isNonRefinedFunction(expected) =>
           actual match
             case defn.RefinedFunctionOf(rinfo: MethodType) =>
-              depFun(args, resultType, isContextual, rinfo.paramNames)
+              /*
+              *  Note: restpe2 is important for aligning dependent functions
+              *  for type comparison. Consider (n: Int) => File^ <: Int => File^
+              *  The rhs is Function1.apply[Int, File^], which must be adapted into a dependent function type.
+              *  However, since the rhs was originally non-dependent, the ^ in its result type does not
+              *  become an existential ResultCap, as only dependent function types have their result types
+              *  transformed to have existential capabilties. Then, comparing the lhs to rhs results in failure
+              *  since the ResultCap on the lhs does not conform to either the FreshCap or the GlobalCap on the rhs.
+              *
+              *  This is a fix for this, as we will make the cap in the result type of
+              *  Int => File^ to be a ResultCap, as we are essentially treating it as a
+              *  refined function type here, and so should be transformed like one.
+              */
+              val restpe2 = toResultInResults(NoSymbol, report.error(_), mapNonDep = true)(resultType)
+              depFun(args, restpe2, isContextual, rinfo.paramNames)
             case _ => expected
         case expected @ defn.RefinedFunctionOf(einfo: MethodType)
         if einfo.allParamNamesSynthetic =>

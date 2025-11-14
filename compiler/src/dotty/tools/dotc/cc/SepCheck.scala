@@ -377,7 +377,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
       if clashIdx == 0 && !isShowableMethod then "" // we already mentioned the type in `funStr`
       else i" with type  ${clashing.nuType}"
     val hiddenSet = formalCaptures(polyArg).hiddenSet
-    val clashSet = captures(clashing)
+    val clashSet = captures(clashing) ++ clashing.symbol.captureVars.elems
     report.error(
       em"""Separation failure: argument of type  ${polyArg.nuType}
           |to $funStr
@@ -468,7 +468,7 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
   private def checkApply(fn: Tree, args: List[Tree], app: Tree, deps: collection.Map[Tree, List[Tree]])(using Context): Unit =
     val (qual, fnCaptures) = methPart(fn) match
       case Select(qual, _) => (qual, qual.nuType.captureSet)
-      case _ => (fn, CaptureSet.empty)
+      case _ => (fn, fn.symbol.captureVars) // CaptureSet.empty)
     var currentPeaks = PeaksPair(fnCaptures.elems.peaks, emptyRefs)
     val partsWithPeaks = mutable.ListBuffer[(Tree, PeaksPair)]() += (qual -> currentPeaks)
 
@@ -617,7 +617,8 @@ class SepCheck(checker: CheckCaptures.CheckerAPI) extends tpd.TreeTraverser:
         hiddenRef.pathRoot match
           case ref: TermRef =>
             val refSym = ref.symbol
-            if currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refSym.maybeOwner.enclosingMethodOrClass) then
+            if currentOwner.enclosingMethodOrClass.isProperlyContainedIn(refSym.maybeOwner.enclosingMethodOrClass)
+              && !(currentOwner.enclosingMethodOrClass.derivesFrom(defn.Sigma))then
               report.error(em"""Separation failure: $descr non-local $refSym""", pos)
             else if refSym.is(TermParam)
               && !refSym.hasAnnotation(defn.ConsumeAnnot)

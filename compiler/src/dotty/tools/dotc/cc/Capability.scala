@@ -24,6 +24,7 @@ import printing.Texts.Text
 import reporting.Message
 import NameOps.isImpureFunction
 import annotation.internal.sharable
+import typer.SigmaOps.*
 
 /** Capabilities are members of capture sets. They partially overlap with types
  *  as shown in the trait hierarchy below.
@@ -135,13 +136,16 @@ object Capabilities:
    *  @param origin  an indication where and why the FreshCap was created, used
    *                 for diagnostics
    */
-  case class FreshCap private (owner: Symbol, origin: Origin)(using @constructorOnly ctx: Context) extends RootCapability:
+  case class FreshCap private (owner: Symbol, origin: Origin)(using ctx: Context) extends RootCapability:
     val hiddenSet = CaptureSet.HiddenSet(owner)
     hiddenSet.owningCap = this
 
     override def equals(that: Any) = that match
       case that: FreshCap => this eq that
       case _ => false
+
+    override def toString(): String =
+      s"FreshCap(${owner.show}, ${origin.explanation})"
 
   object FreshCap:
     def apply(origin: Origin)(using Context): FreshCap | GlobalCap.type =
@@ -177,6 +181,8 @@ object Capabilities:
    *  is expanded.
    */
   case class ResultCap(binder: MethodicType) extends RootCapability:
+
+    override def toString = s"ResultCap($myOrigin)"
 
     private var myOrigin: RootCapability = GlobalCap
     private var variants: SimpleIdentitySet[ResultCap] = SimpleIdentitySet.empty
@@ -385,11 +391,15 @@ object Capabilities:
      *  Symbols representing levels are
      *   - class symbols, but not inner (non-static) module classes
      *   - method symbols, but not accessors or constructors
+     *
+     * Case for Sigma is because each new Sigma will generate an anonymous class,
+     * which means that the owner will be set to that anonymous class. However, this
+     * shouldn't be the real owner as the Sigma should be treated as a Pair.
      */
     final def levelOwner(using Context): Symbol =
       def adjust(owner: Symbol): Symbol =
         if !owner.exists
-          || owner.isClass && (!owner.is(Flags.Module) || owner.isStatic)
+          || owner.isClass && (!owner.is(Flags.Module) || owner.isStatic) && !owner.derivesFrom(defn.Sigma)
           || owner.is(Flags.Method, butNot = Flags.Accessor) && !owner.isConstructor
         then owner
         else adjust(owner.owner)
@@ -819,14 +829,21 @@ object Capabilities:
 
   /** Map global roots in function results to result roots. Also,
    *  map roots in the types of parameterless def methods.
+   *
+   *  @param mapNonDep see comment in alignDependentFunction in CheckCaptures.scala
    */
-  def toResultInResults(sym: Symbol, fail: Message => Unit, keepAliases: Boolean = false)(tp: Type)(using Context): Type =
+  def toResultInResults(sym: Symbol, fail: Message => Unit, keepAliases: Boolean = false,
+    mapNonDep: Boolean = false)(tp: Type)(using Context): Type =
     val m = new TypeMap with FollowAliasesMap:
       def apply(t: Type): Type = t match
         case AnnotatedType(parent @ defn.RefinedFunctionOf(mt), ann) if ann.symbol == defn.InferredDepFunAnnot =>
           val mt1 = mapOver(mt).asInstanceOf[MethodType]
           if mt1 ne mt then mt1.toFunctionType(alwaysDependent = true)
           else parent
+        case t @ defn.FunctionNOf(args, resultType, isContextual) if mapNonDep =>
+          val methodType = if isContextual then ContextualMethodType else MethodType
+          val mt = apply(methodType(args, resultType))
+          mt.toFunctionType(alwaysDependent = true)
         case defn.RefinedFunctionOf(mt) =>
           val mt1 = apply(mt)
           if mt1 ne mt then mt1.toFunctionType(alwaysDependent = true)

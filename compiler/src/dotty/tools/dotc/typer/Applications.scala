@@ -1072,6 +1072,12 @@ trait Applications extends Compatibility {
    *  Block node.
    */
   def typedApply(tree: untpd.Apply, pt: Type)(using Context): Tree = {
+    val nam = tree.fun match
+      case Apply(Ident(name), _) =>
+        name.toString
+      case Ident(name) =>
+        name.toString
+      case _ => "23075023749"
 
     def realApply(using Context): Tree = {
       val resultProto = tree.fun match
@@ -1089,8 +1095,8 @@ trait Applications extends Compatibility {
       val originalProto =
         new FunProto(tree.args, resultProto)(this, tree.applyKind)(using argCtx(tree))
       record("typedApply")
+      // debugging here for function
       val fun1 = typedExpr(tree.fun, originalProto)
-
       // If adaptation created a tupled dual of `originalProto`, pick the right version
       // (tupled or not) of originalProto to proceed.
       val proto =
@@ -1317,6 +1323,8 @@ trait Applications extends Compatibility {
     if (proto.allArgTypesAreCurrent())
       typer.ApplyToTyped(app, fun, methRef, proto.typedArgs(), resultType, proto.applyKind).result
     else
+      // if (methRef.name.toString == "println") then
+      //   println("println DEBUG")
       typer.ApplyToUntyped(app, fun, methRef, proto, resultType)(
         using fun.nullableInArgContext(using argCtx(app))).result
 

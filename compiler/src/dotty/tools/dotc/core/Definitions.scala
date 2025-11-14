@@ -1015,6 +1015,10 @@ class Definitions {
 
   @tu lazy val PureClass: Symbol = requiredClass("scala.Pure")
 
+  @tu lazy val EitherTypeRef: TypeRef = requiredClassRef("scala.util.Either")
+  @tu lazy val LeftTypeRef: TypeRef = requiredClassRef("scala.util.Left")
+  @tu lazy val RightTypeRef: TypeRef = requiredClassRef("scala.util.Right")
+
   // Annotation base classes
   @tu lazy val AnnotationClass: ClassSymbol = requiredClass("scala.annotation.Annotation")
   @tu lazy val StaticAnnotationClass: ClassSymbol = requiredClass("scala.annotation.StaticAnnotation")
@@ -2094,6 +2098,20 @@ class Definitions {
       case Some(pkgs) => pkgs.contains(sym.owner)
       case none => false
 
+  /**
+   * Typestate definitions - in scala/typestate/package.scala
+   * Are only enabled if capture checking is enabled.
+   */
+  @tu lazy val TypestateModule: Symbol = requiredPackage("scala.typestate")
+  @tu lazy val KillAnnot: ClassSymbol = requiredClass("scala.typestate.kill")
+  @tu lazy val FuncSelfRef: TermSymbol = TypestateModule.requiredValue("FUN")
+  @tu lazy val Sigma: ClassSymbol = requiredClass("scala.typestate.Sigma")
+  @tu lazy val ImplicitRet: TypeSymbol = TypestateModule.moduleClass.requiredType("?<=".toTypeName)
+  @tu lazy val KillArgFunc: TypeSymbol = TypestateModule.moduleClass.requiredType("=!>".toTypeName)
+  @tu lazy val ImpKillArgFunc: TypeSymbol = TypestateModule.moduleClass.requiredType("?=!>".toTypeName)
+  @tu lazy val StateTransition: TypeSymbol = TypestateModule.moduleClass.requiredType("?=!>?".toTypeName)
+  @tu lazy val SigmaFactory: Symbol = TypestateModule.requiredMethod("Sigma")
+
   /** Experimental definitions that can nevertheless be accessed from a stable
    *  compiler if capture checking is enabled.
    */
@@ -2105,7 +2123,9 @@ class Definitions {
     Caps_Mutable, Caps_SharedCapability, ConsumeAnnot,
     CapsUnsafeModule, CapsUnsafeModule.moduleClass,
     CapsInternalModule, CapsInternalModule.moduleClass,
-    RetainsAnnot, RetainsCapAnnot, RetainsByNameAnnot)
+    RetainsAnnot, RetainsCapAnnot, RetainsByNameAnnot,
+    TypestateModule, KillAnnot, FuncSelfRef, Sigma, ImplicitRet, StateTransition,
+    KillArgFunc, ImpKillArgFunc, SigmaFactory)
 
   /** Experimental language features defined in `scala.runtime.stdLibPatches.language.experimental`.
    *

@@ -423,6 +423,10 @@ sealed abstract class CaptureSet extends Showable:
    */
   def processElems[T](f: Refs => T): T = f(elems)
 
+  def hasFreshCapSet: Boolean
+
+  def hasFreshCapSet_=(b: Boolean): Unit
+
 object CaptureSet:
   type Refs = SimpleIdentitySet[Capability]
   type Vars = SimpleIdentitySet[Var]
@@ -488,6 +492,11 @@ object CaptureSet:
     def owner = NoSymbol
 
     override def toString = elems.toString
+
+    // Const is false because a fresh CapSet needs to be solved
+    def hasFreshCapSet: Boolean = false
+    // is this not terrible code LOL
+    def hasFreshCapSet_=(b: Boolean): Unit = ()
   end Const
 
   case class EmptyWithProvenance(ref: Capability, mapped: CaptureSet) extends Const(SimpleIdentitySet.empty):
@@ -562,6 +571,8 @@ object CaptureSet:
     var newElemAddedHandler: Capability => Context ?=> Unit = _ => ()
 
     var description: String = ""
+
+    var hasFreshCapSet: Boolean = false
 
     /** Record current elements in given VarState provided it does not yet
      *  contain an entry for this variable.
@@ -817,7 +828,6 @@ object CaptureSet:
   final class BiMapped private[CaptureSet]
     (val source: Var, val bimap: BiTypeMap, initialElems: Refs)(using @constructorOnly ctx: Context)
   extends DerivedVar(source.owner, initialElems):
-
     override def tryInclude(elem: Capability, origin: CaptureSet)(using Context, VarState): CompareResult =
       if origin eq source then
         val mappedElem = bimap.mapCapability(elem)

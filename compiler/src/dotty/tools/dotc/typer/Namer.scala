@@ -1793,6 +1793,9 @@ class Namer { typer: Typer =>
   def typedAheadExpr(tree: Tree, pt: Type = WildcardType)(using Context): tpd.Tree =
     typedAhead(tree, typer.typedExpr(_, pt))
 
+  def typedAheadTailExpr(tree: Tree, pt: Type = WildcardType)(using Context): tpd.Tree =
+    typedAhead(tree, typer.typedTailExpr(_, pt))
+
   def typedAheadAnnotationClass(tree: Tree)(using Context): Symbol = tree match
     case Apply(fn, _) => typedAheadAnnotationClass(fn)
     case TypeApply(fn, _) => typedAheadAnnotationClass(fn)
@@ -1858,7 +1861,7 @@ class Namer { typer: Typer =>
             // This case applies if the closure result type contains uninstantiated
             // type variables. In this case, constrain the closure result from below
             // by the parameter-capture-avoiding type of the body.
-            val rhsType = typedAheadExpr(mdef.rhs, tpt.tpe).tpe
+            val rhsType = typedAheadTailExpr(mdef.rhs, tpt.tpe).tpe
 
             // The following part is important since otherwise we might instantiate
             // the closure result type with a plain functon type that refers
@@ -2207,7 +2210,7 @@ class Namer { typer: Typer =>
     def typedAheadRhs(pt: Type) =
       CyclicReference.trace(i"type the right hand side of $sym since no explicit type was given"):
         PrepareInlineable.dropInlineIfError(sym,
-          typedAheadExpr(mdef.rhs, pt)(using rhsCtx))
+          typedAheadTailExpr(mdef.rhs, pt)(using rhsCtx))
 
     def rhsType =
       // For default getters, we use the corresponding parameter type as an
