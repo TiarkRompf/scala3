@@ -86,8 +86,8 @@ class Compiler {
     List(new TestRecheck) ::         // Test only: run rechecker, enabled under -Yrecheck-test
     List(new cc.Setup) ::            // Preparations for check captures phase, enabled under captureChecking
     List(new cc.CheckCaptures) ::    // Check captures, enabled under captureChecking
-    List(new eff.FXSetup) ::
-    List(new eff.CheckEffects) ::
+    // List(new eff.FXSetup) ::
+    // List(new eff.CheckEffects) ::
     List(new ElimOpaque,             // Turn opaque into normal aliases
          new sjs.ExplicitJSClasses,  // Make all JS classes explicit (Scala.js only)
          new ExplicitOuter,          // Add accessors to outer classes from nested ones.
