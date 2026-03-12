@@ -44,19 +44,23 @@ the classpath of the file:
 ```
 scala HelloWorld
 ```
-### Using Compiler in Local Projects
 
-To use the compiler in a local project, run
+### Running Compilation Tests
 
-`sbt publishLocal`
+To run the 373 compilation tests for capture checking (as stated in Section 5), invoke:
+```
+testCompilation captures
+```
 
-(you may ignore error messages during publishing process.)
+The test case
+```tests/run-custom-args/captures/minicheck.scala``` may fail when running the test suite,
+but succeeds when ran on its own. If this test case fails during the test suite, then the
+`testCompilation captures` command will provide reproduction instructions for this test case.
+Note that the reproduction instructions state that the command to run the test case will end
+with `'tests/run-custom-args/captures/minicheck.scala'`. Please remove the apostrophes
+when running the command.
 
-Then in the `build.sbt` file of the local project set
-
-`ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"`
-
-See [publishing to local repository](https://nightly.scala-lang.org/docs/contributing/getting-started.html#publish-to-local-repository).
+## Step-by-Step Instructions
 
 ### Enabling Typestate Extensions
 
@@ -67,15 +71,20 @@ import at the top of the file:
 import language.experimental.captureChecking
 ```
 
-Then import the typestate definitions with `import typestate.*`. The definitions can be found in directory
-`library/src/scala/typestate/package.scala`.
+Then import the typestate definitions with
+```
+import typestate.*
+```
 
-## Step-by-Step Instructions
+The typestate definitions can be found in the file
+```
+library/src/scala/typestate/package.scala
+```
 
 ### Paper Figure to Artifact Correspondence
 
-The following table lists the correspondence between each code
-figure in the paper that uses our prototype and file in the artifact.
+The following table lists the correspondence between each major code example
+in the paper and file in the artifact. All code figures are found in the `examples/` directory.
 
 | **Paper Figure**    |  **File Name**               |
 |  ----               |  ----                        |
@@ -90,43 +99,79 @@ figure in the paper that uses our prototype and file in the artifact.
 | Figure 9            | `examples/SessionImp.scala`  |
 | Figure 10           | `examples/ControlFlow.scala` |
 | Figure 11           | `examples/ControlFlow.scala` |
-| Figure 12           | `examples/ControlFlow.scala` |
 
-The `examples/` directory also contains more examples:
+The `examples/` directory also contains more examples not found in the paper:
 | **File Name**        | **Description**              |
 |  ----                | ----                         |
 | `File.scala`         | Final version of running file example as detailed in section 2 |
-| `SessionExp.scala`   | Session-typed channels without path-dependent capabilities (e.g. destroying channel itself.) |
+| `SessionExp.scala`   | Session-typed channels without path-dependent capabilities (kills channel itself.) |
 | `Drone.scala`        | Drone example from [Trindade et al. 2020](https://arxiv.org/pdf/2009.08769). |
 
-All files compile under `scalac`. It is possible to run `examples/File.scala` with `scala`. However, other
-files rely on `???` as implementations of the methods. This is because we regard the implementation of 
+All files compile with `scalac`.
+It is possible to run `examples/File.scala` and `examples/TableLock.scala` with `scala`. To do so,
+first compile both files with `scalac`, and then invoke `scala Main`.
 
-### Deviations from the Paper
-
-### Limitations? (rename)
-
-### Tests
-
-Running capture checker tests can be done by starting an `sbt` shell and then invoking `testCompilation captures` for capture checking tests. Note that test case `tests/run-custom-args/captures/minicheck.scala` may fail when running the test suite, but succeeds when running on its own (follow the reproduction
-instructions after running the test suite to reproduce on its own).
+Other examples use `???` to implement certain methods, which will result in a run-time `NotImplementedError`.
+We do this because the full implementation of these examples is both non-novel and orthogonal to our contribution.
+This does not deviate from any figure shown in the paper.
 
 ### Compiler Modifications
 
-The following table describes each file in the compiler that
-our prototype either adds or modifies.
+This section describes the major modifications made to the Scala 3 compiler.
+The major modifications are all made in the directory `compiler/src/dotty/tools/dotc`.
+The following table lists each file that is either new or modified significantly.
+Note that the file name is specified relative to `compiler/src/dotty/tools/dotc` (e.g. `typer/Typer.scala`
+is `compiler/src/dotty/tools/dotc/typer/Typer.scala`):
 
-| **File Name**     | **Description**   |
-| ----              | ---               |
+| **File Name**             | **Description of Changes**                                           |
+| ----                      | ----                                                                 |
+|`core/TypeComparer.scala`  | Added support for destructive effect subtyping.                      |
+|`eff/CheckEffects.scala`   | New file: Main checker for destructive effects.                      |
+|`eff/EffectOps.scala`      | New file: Contains helpful operations for effect checking            |
+|`eff/FXSetup.scala`        | New file: Sets up AST for effect checking                            |
+|`typer/SigmaOps.scala`     | New file: Contains helpful operations for working with `Sigma` types |
+|`typer/Typer.scala`        | Added support for `Sigma`-type directed ANF transform.               |
 
-There were two major modifications to the compiler:
+### Deviations from the Paper
 
-- An effect checking phase (`compiler/src/dotty/tools/dotc/eff/`) was added for destructive effects. It runs after
-  the capture checking phase. The main effect checker is in `compiler/src/dotty/tools/dotc/eff/CheckEffects.scala`.
+The Scala compiler requires parenthesization between `^` and `@`:
+```
+def open(f: ClosedFile^): (OpenFile^) @kill(f)
+```
+whereas the paper omits parantheses for readability:
+```
+def open(f: ClosedFile^): OpenFile^ @kill(f)
+```
 
-- The typer (`compiler/src/dotty/tools/dotc/typer/Typer.scala`)
-  was modified to support `Sigma`types. The typer performs
-  a type-directed ANF transform triggered by `Sigma` types.
+Scala 3 does not currently support curried implicit dependent function types.
+This means examples involving curried implicit dependent higher-order functions, such as `makeDOM` (Section 3.2)
+need to explicitly bind arguments:
 
-In addition, the capture checker (`compiler/src/dotty/tools/dotc/cc/`)
-was also modified for better support of higher-order functions and `Sigma` types.
+```
+makeDOM { dom => c => //
+  ...
+}
+```
+
+Code examples in the paper omit this:
+```
+makeDOM { dom =>
+  ...
+}
+```
+
+but there is a footnote describing this omission.
+
+
+### Using the Prototype in Local Projects
+
+To use our prototype in a local project, first run
+
+`sbt publishLocal`
+
+Error messages that occur during the publishing process can be ignored.
+Then, in the `build.sbt` file of the local project, add the following line:
+
+`ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"`
+
+See [publishing to local repository](https://nightly.scala-lang.org/docs/contributing/getting-started.html#publish-to-local-repository).
