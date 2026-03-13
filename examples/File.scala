@@ -82,7 +82,7 @@ object Main:
     }
 
   def main(args: Array[String]): Unit =
-    val f = File("ts-test/abc.txt")
+    val f = File("examples/sample.txt")
     val messages = Array("Hello", "World", "This", "Is", "An", "Array")
     f.open()
     for msg <- messages do

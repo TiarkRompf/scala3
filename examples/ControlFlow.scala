@@ -107,3 +107,31 @@ object Main:
     f.close()
     ()
 
+  class myIterator[T]:
+    type HasMore
+    type End
+
+  extension [T](ite: myIterator[T])
+    def hasNext(): Boolean = ???
+
+    def next(): (ite.HasMore^) ?=> (ite.HasMore^) ?<= T = ???
+
+    def nextChecked(): (ite.HasMore^) ?=> (Either[ite.HasMore, ite.End]^) ?<= Option[T] = ???
+
+
+  def three() =
+    val ite: myIterator[Int] = ???
+    implicit val c: ite.HasMore^ = ???
+    loop[ite.HasMore] (ite.hasNext()) {
+      val item = ite.next()
+      ()
+    }
+
+  def four() =
+    val ite: myIterator[Int] = ???
+    implicit val c: ite.HasMore^ = ???
+    whileLeft[ite.HasMore, ite.End] {
+      val item = ite.nextChecked()
+      ()
+    }
+

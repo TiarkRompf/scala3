@@ -64,7 +64,7 @@ when running the command.
 
 ### Enabling Typestate Extensions
 
-This section details how to enable our compiler extensions in a particular file.
+This section details how to enable our compiler extensions.
 First, enable [capture checking](https://docs.scala-lang.org/scala3/reference/experimental/cc.html) with an
 import at the top of the file:
 ```
@@ -83,8 +83,19 @@ library/src/scala/typestate/package.scala
 
 ### Paper Figure to Artifact Correspondence
 
-The following table lists the correspondence between each major code example
-in the paper and file in the artifact. All code figures are found in the `examples/` directory.
+The following table lists the correspondence between each major code example (divided by section)
+in the paper and file in the artifact. Each file is meant to contain the final version of the
+"running example" for the corresponding section. All such files are found in the `examples/` directory.
+
+| **Paper Section**   | **File Name**                |
+| ----                | ----                         |
+| Section 2           | `examples/File.scala`        |
+| Section 3.1         | `examples/TableLock.scala`   |
+| Section 3.2         | `examples/DOM.scala`         |
+| Section 3.3         | `examples/SessionImp.scala`  |
+| Section 3.4         | `examples/ControlFlow.scala` |
+
+The following table provides a figure-to-file correspondence:
 
 | **Paper Figure**    |  **File Name**               |
 |  ----               |  ----                        |
@@ -99,17 +110,18 @@ in the paper and file in the artifact. All code figures are found in the `exampl
 | Figure 9            | `examples/SessionImp.scala`  |
 | Figure 10           | `examples/ControlFlow.scala` |
 | Figure 11           | `examples/ControlFlow.scala` |
+| Figure 12           | `examples/ControlFlow.scala` |
 
 The `examples/` directory also contains more examples not found in the paper:
 | **File Name**        | **Description**              |
 |  ----                | ----                         |
-| `File.scala`         | Final version of running file example as detailed in section 2 |
 | `SessionExp.scala`   | Session-typed channels without path-dependent capabilities (kills channel itself.) |
 | `Drone.scala`        | Drone example from [Trindade et al. 2020](https://arxiv.org/pdf/2009.08769). |
 
 All files compile with `scalac`.
-It is possible to run `examples/File.scala` and `examples/TableLock.scala` with `scala`. To do so,
-first compile both files with `scalac`, and then invoke `scala Main`.
+In addition, it is possible to run `examples/File.scala` and `examples/TableLock.scala` with `scala`. To do so,
+first compile both files with `scalac`, and then invoke `scala Main`. Running `examples/File.scala` will
+edit `examples/samples.txt`.
 
 Other examples use `???` to implement certain methods, which will result in a run-time `NotImplementedError`.
 We do this because the full implementation of these examples is both non-novel and orthogonal to our contribution.
@@ -148,7 +160,7 @@ This means examples involving curried implicit dependent higher-order functions,
 need to explicitly bind arguments:
 
 ```
-makeDOM { dom => c => //
+makeDOM { dom => c =>
   ...
 }
 ```
@@ -160,18 +172,84 @@ makeDOM { dom =>
 }
 ```
 
-but there is a footnote describing this omission.
+Note that there is a footnote in the paper describing this omission.
 
+In Figure 7, some upper type bounds are elided for space (this is stated in the paper).
+For example, method `send` in the figure has signature
+
+```
+def send[T, E, P](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
+```
+
+but in Scala will have the signature
+
+```
+def send[T, E <: PList, P <: Session](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
+```
+
+Method return types are omitted for the same reason in figure 8.
+
+
+### Prototype Coverage
+
+As stated in Section 5, our prototype is meant to cover a core subset of Scala
+where reachability types align closely to capturing types. In particular,
+our effect checker works for STLC core of Scala, or our effect checkers
+functions correctly with respect to higher-order functions.
+
+Therefore, there are major features of Scala omitted from the prototype. In particular, destructive
+effects do not work on mutable variables and object fields; attempting to
+kill them will not have an effect.
+
+We also restrict destructive effects on polymorphic variables
+This is because capturing types posses a "boxing" discipline, where upon a type
+entering a generic context, its capture set is hidden.
+
+```
+def foo[T](x: T): Unit =
+  kill(x)
+
+def bar() =
+  val f: File^ = ...
+  val f2 = f
+
+  foo(f2) // f2 will appear with no capture set inside foo
+```
+
+As a result, naively killing
+terms with such types is unsound due to loss of capturing information.
+Destroying such a variable will result in a compile-time error.
+
+Another point to emphasize is the key difference between reachability types
+and the implementation of capturing types. Importantly, capturing types overload the meaning of the
+top capability `^` as something that could represent both fresh and function self-reference in reachability types.
+TODO
+
+The `Sigma`-type directed ANF transform also does not cover all Scala features. It is currently
+only triggered by an application node having type `Sigma`. This means that cases
+which should trigger a transform do not do so, such as nesting an application inside a block
+```
+  val k = {
+    open(f)
+  }
+```
+
+Nevertheless, we believe that a full implementation of `Sigma` is an effort in engineering,
+and its current role sufices for our use cases.
 
 ### Using the Prototype in Local Projects
 
 To use our prototype in a local project, first run
 
-`sbt publishLocal`
+```
+sbt publishLocal
+```
 
 Error messages that occur during the publishing process can be ignored.
 Then, in the `build.sbt` file of the local project, add the following line:
 
-`ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"`
+```
+ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"
+```
 
 See [publishing to local repository](https://nightly.scala-lang.org/docs/contributing/getting-started.html#publish-to-local-repository).
