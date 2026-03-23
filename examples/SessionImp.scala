@@ -7,81 +7,81 @@ import scala.annotation.tailrec
 import scala.compiletime.ops.int.S
 
 package Channel:
-  trait Session
-  class Send[T, P <: Session] extends Session
-  class Recv[T, P <: Session] extends Session
-  class Select[L <: Session, R <: Session] extends Session
-  class Branch[L <: Session, R <: Session] extends Session
-  class Rec[P <: Session] extends Session
-  class Var[N <: Int] extends Session
-  class End extends Session
+  trait Local
+  class Send[B, T <: Local] extends Local
+  class Recv[B, T <: Local] extends Local
+  class Select[L <: Local, T <: Local] extends Local
+  class Branch[L <: Local, T <: Local] extends Local
+  class Rec[T <: Local] extends Local
+  class Var[N <: Int] extends Local
+  class End extends Local
 
-  type Dual[P <: Session] <: Session = P match
-    case Send[t, p] => Recv[t, Dual[p]]
-    case Recv[t, p] => Send[t, Dual[p]]
+  type Dual[T <: Local] <: Local = T match
+    case Send[b, t] => Recv[b, Dual[t]]
+    case Recv[b, t] => Send[b, Dual[t]]
     case Select[l, r] => Branch[Dual[l], Dual[r]]
     case Branch[l, r] => Select[Dual[l], Dual[r]]
-    case Rec[p] => Rec[Dual[p]]
+    case Rec[t] => Rec[Dual[t]]
     case Var[n] => Var[n]
     case End => End
 
   trait PList
   class PNil extends PList
-  class ::[P <: Session, L <: PList] extends PList
+  class ::[T <: Local, L <: PList] extends PList
 
   class Chan private[Channel]():
-    type PCap[E <: PList, P <: Session]
+    type PCap[E <: PList, T <: Local]
     private var _isOpen = true
     def isOpen = _isOpen
     private[Channel] def isOpen_=(b : Boolean) = _isOpen = b
 
   object Chan:
-    def apply[P <: Session]():
-      ( Sigma { type A = Chan; type B = a.PCap[PNil, P]^ },
-        Sigma { type A = Chan; type B = a.PCap[PNil, Dual[P]]^ }) =
+    def apply[T <: Local]():
+      ( Sigma { type A = Chan; type B = a.PCap[PNil, T]^ },
+        Sigma { type A = Chan; type B = a.PCap[PNil, Dual[T]]^ }) =
       val c1 = new Chan
       val c2 = new Chan
       ( new Sigma:
           type A = Chan
-          type B = a.PCap[PNil, P]^
+          type B = a.PCap[PNil, T]^
           val a: c1.type = c1
-          val b: c1.PCap[PNil, P]^ = ().asInstanceOf[c1.PCap[PNil, P]],
+          val b: c1.PCap[PNil, T]^ = ().asInstanceOf[c1.PCap[PNil, T]],
         new Sigma:
           type A = Chan
-          type B = a.PCap[PNil, Dual[P]]^
+          type B = a.PCap[PNil, Dual[T]]^
           val a: c2.type = c2
-          val b: c2.PCap[PNil, Dual[P]]^ = ().asInstanceOf[c2.PCap[PNil, Dual[P]]]
+          val b: c2.PCap[PNil, Dual[T]]^ = ().asInstanceOf[c2.PCap[PNil, Dual[T]]]
       )
 
   extension (chan: Chan)
-    def recPush[E <: PList, P <: Session](): chan.PCap[E, Rec[P]] ?=!>? chan.PCap[P :: E, P] =
-      Sigma((), ().asInstanceOf[chan.PCap[P :: E, P]])
+    def recPush[E <: PList, T <: Local](): chan.PCap[E, Rec[T]] ?=!>? chan.PCap[T :: E, T] =
+      Sigma((), ().asInstanceOf[chan.PCap[T :: E, T]])
 
-    def recTop[E <: PList, P <: Session](): chan.PCap[P :: E, Var[0]] ?=!>? chan.PCap[P :: E, P] =
-      Sigma((), ().asInstanceOf[chan.PCap[P :: E, P]])
+    def recTop[E <: PList, T <: Local](): chan.PCap[T :: E, Var[0]] ?=!>? chan.PCap[T :: E, T] =
+      Sigma((), ().asInstanceOf[chan.PCap[T :: E, T]])
 
-    def recPop[E <: PList, P <: Session, N <: Int](): chan.PCap[P :: E, Var[S[N]]] ?=!>? chan.PCap[E, Var[N]] =
+    def recPop[E <: PList, T <: Local, N <: Int](): chan.PCap[T :: E, Var[S[N]]] ?=!>? chan.PCap[E, Var[N]] =
       Sigma((), ().asInstanceOf[chan.PCap[E, Var[N]]])
 
-    def send[T, E <: PList, P <: Session](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P] =
-      Sigma((), ().asInstanceOf[chan.PCap[E, P]])
+    def send[B, E <: PList, T <: Local](x: B): chan.PCap[E, Send[B, T]] ?=!>? chan.PCap[E, T] =
+      Sigma((), ().asInstanceOf[chan.PCap[E, T]])
 
-    def recv[T, E <: PList, P <: Session](): (chan.PCap[E, Recv[T, P]]^) ?=!> ((chan.PCap[E, P]^) ?<= T) =
-      Sigma(???, ().asInstanceOf[chan.PCap[E, P]])
+    def recv[B, E <: PList, T <: Local](): (chan.PCap[E, Recv[B, T]]^) ?=!> ((chan.PCap[E, T]^) ?<= B) =
+      Sigma(???, ().asInstanceOf[chan.PCap[E, T]])
       // new Sigma:
       //   type A = T
       //   type B = chan.PCap[E, P]^
       //   val a: T = ???
       //   val b: chan.PCap[E, P]^ = ().asInstanceOf[chan.PCap[E, P]]
 
-    def left[E <: PList, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, L] =
+    def left[E <: PList, L <: Local, R <: Local](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, L] =
       Sigma((), ().asInstanceOf[chan.PCap[E, L]])
 
-    def right[E <: PList, L <: Session, R <: Session](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, R] =
+    def right[E <: PList, L <: Local, R <: Local](): chan.PCap[E, Select[L, R]] ?=!>? chan.PCap[E, R] =
       Sigma((), ().asInstanceOf[chan.PCap[E, R]])
 
-    def branch[E <: PList, L <: Session, R <: Session, T](using c: chan.PCap[E, Branch[L, R]]^)
-      (l: (chan.PCap[E, L]^) ?=!> T)(r: (chan.PCap[E, R]^) ?=!> T): T @kill(c) =
+    def branch[E <: PList, L <: Local, R <: Local, F](using c: chan.PCap[E, Branch[L, R]]^)
+      (l: (chan.PCap[E, L]^) ?=!> F)(r: (chan.PCap[E, R]^) ?=!> F): F @kill(c) =
       if ??? then
         l(using ().asInstanceOf[chan.PCap[E, L]])
       else

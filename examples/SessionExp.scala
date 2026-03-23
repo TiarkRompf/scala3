@@ -6,60 +6,60 @@ import scala.annotation.tailrec
 import scala.compiletime.ops.int.S
 import typestate.*
 
-trait Session
-class Send[T, P <: Session] extends Session
-class Recv[T, P <: Session] extends Session
-class Select[L <: Session, R <: Session] extends Session
-class Branch[L <: Session, R <: Session] extends Session
-class Rec[P <: Session] extends Session
-class Var[N <: Int] extends Session
-class End extends Session
+trait Local
+class Send[B, T <: Local] extends Local
+class Recv[B, T <: Local] extends Local
+class Select[L <: Local, R <: Local] extends Local
+class Branch[L <: Local, R <: Local] extends Local
+class Rec[T <: Local] extends Local
+class Var[N <: Int] extends Local
+class End extends Local
 
-type Dual[P <: Session] <: Session = P match
-  case Send[t, p] => Recv[t, Dual[p]]
-  case Recv[t, p] => Send[t, Dual[p]]
+type Dual[T <: Local] <: Local = T match
+  case Send[b, t] => Recv[b, Dual[t]]
+  case Recv[b, t] => Send[b, Dual[t]]
   case Select[l, r] => Branch[Dual[l], Dual[r]]
   case Branch[l, r] => Select[Dual[l], Dual[r]]
-  case Rec[p] => Rec[Dual[p]]
+  case Rec[t] => Rec[Dual[t]]
   case Var[n] => Var[n]
   case End => End
 
-class Chan[E <: Tuple, P <: Session]
-type EChan[P <: Session] = Chan[EmptyTuple, P]
-type Emp[P <: Session] = P *: EmptyTuple
+class Chan[E <: Tuple, T <: Local]
+type EChan[T <: Local] = Chan[EmptyTuple, T]
+type Emp[T <: Local] = T *: EmptyTuple
 
 object Chan:
-  def apply[P <: Session](): (EChan[P]^, EChan[Dual[P]]^) =
-    (new Chan[EmptyTuple, P], new Chan[EmptyTuple, Dual[P]])
+  def apply[T <: Local](): (EChan[T]^, EChan[Dual[T]]^) =
+    (new Chan[EmptyTuple, T], new Chan[EmptyTuple, Dual[T]])
 
-  extension [E <: Tuple, P <: Session](chan: Chan[E, Rec[P]]^)
-   def rec_push(): (Chan[P *: E, P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[P *: E, P]]
+  extension [E <: Tuple, T <: Local](chan: Chan[E, Rec[T]]^)
+   def rec_push(): (Chan[T *: E, T]^) @kill(chan) =
+      chan.asInstanceOf[Chan[T *: E, T]]
 
-  extension [E <: Tuple, P <: Session](chan: Chan[P *: E, Var[0]]^)
-    def rec_top(): (Chan[P *: E, P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[P *: E, P]]
+  extension [E <: Tuple, T <: Local](chan: Chan[T *: E, Var[0]]^)
+    def rec_top(): (Chan[T *: E, T]^) @kill(chan) =
+      chan.asInstanceOf[Chan[T *: E, T]]
 
-  extension [E <: Tuple, P <: Session, N <: Int](chan: Chan[P *: E, Var[S[N]]]^)
+  extension [E <: Tuple, T <: Local, N <: Int](chan: Chan[T *: E, Var[S[N]]]^)
     def rec_pop(): (Chan[E, Var[N]]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, Var[N]]]
 
-  extension [E <: Tuple, P <: Session, T](chan: Chan[E, Send[T, P]]^)
-    def send(x: T): (Chan[E, P]^) @kill(chan) =
-      chan.asInstanceOf[Chan[E, P]]
+  extension [E <: Tuple, T <: Local, B](chan: Chan[E, Send[B, T]]^)
+    def send(x: B): (Chan[E, T]^) @kill(chan) =
+      chan.asInstanceOf[Chan[E, T]]
 
-  extension [E <: Tuple, P <: Session, T](chan: Chan[E, Recv[T, P]]^)
-    def recv(): (Chan[E, P]^, T) @kill(chan) =
+  extension [E <: Tuple, T <: Local, B](chan: Chan[E, Recv[B, T]]^)
+    def recv(): (Chan[E, T]^, B) @kill(chan) =
       ???
 
-  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Select[L, R]]^))
+  extension [E <: Tuple, L <: Local, R <: Local](chan: (Chan[E, Select[L, R]]^))
     def left(): (Chan[E, L]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, L]]
 
     def right(): (Chan[E, R]^) @kill(chan) =
       chan.asInstanceOf[Chan[E, R]]
 
-  extension [E <: Tuple, L <: Session, R <: Session](chan: (Chan[E, Branch[L, R]]^))
+  extension [E <: Tuple, L <: Local, R <: Local](chan: (Chan[E, Branch[L, R]]^))
     def branch(): Either[Chan[E, L]^, Chan[E, R]^] @kill(chan) =
       ???
 
