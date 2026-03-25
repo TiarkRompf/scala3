@@ -14,6 +14,7 @@ import cc.*
 import CheckEffects.*
 import NamerOps.methodType
 import typer.SigmaOps.*
+import config.Feature
 
 trait FXSetupAPI:
   def setupUnit(tree: Tree, checker: FXCheckerAPI)(using Context): Tree
@@ -28,7 +29,7 @@ class FXSetup extends PreRecheck, SymTransformer, FXSetupAPI:
   thisPhase =>
   override def phaseName: String = FXSetup.name
   override def description: String = FXSetup.description
-  override def isRunnable(using Context): Boolean = super.isRunnable
+  override def isRunnable(using Context): Boolean = super.isRunnable && Feature.ccEnabledSomewhere
   override def changesBaseTypes: Boolean = true
   override def transformSym(symd: SymDenotation)(using Context): SymDenotation = symd
 
