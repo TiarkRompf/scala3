@@ -1,0 +1,30 @@
+info, 1, version, 2, output, /Users/craig/rt-workspace/scala3/compiler/../out/default-last-scalac-out.jar
+header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize
+header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads
+MAIN,135598260002291,135598322069625,1,1,parser,,0,1,main,62067334,0,56297000,54375000,6101800,36623112 
+GC,135598422869083,135598427869083,660, 664,G1 Young Generation,end of minor GC,G1 Preventive Collection,5
+GC,135598444818333,135598449818333,686, 690,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+GC,135598637944916,135598641944916,880, 883,G1 Young Generation,end of minor GC,Metadata GC Threshold,5
+MAIN,135598324306000,135598952598333,1,2,typer,,0,1,main,628292333,0,558026000,546945000,52915104,38654512 
+MAIN,135598952698500,135598952881958,1,3,inlinedPositions,,0,1,main,183458,0,183000,180000,26992,38654512 
+MAIN,135598952928875,135599033977708,1,6,posttyper,,0,1,main,81048833,0,67000000,66442000,7334152,42848816 
+MAIN,135599034058208,135599034108083,1,7,unrollDefs,,0,1,main,49875,0,49000,47000,2160,42848816 
+GC,135599068080833,135599072080833,1310, 1313,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,135599034145750,135599092522000,1,9,pickler,,0,1,main,58376250,0,31952000,31215000,7921400,32812032 
+MAIN,135599092593916,135599092638541,1,11,inlining,,0,1,main,44625,0,45000,41000,2160,32812032 
+MAIN,135599092666166,135599092690833,1,12,postInlining,,0,1,main,24667,0,25000,23000,18112,32812032 
+MAIN,135599093575208,135599093613791,1,13,staging,,0,1,main,38583,0,39000,33000,2160,32812032 
+MAIN,135599093637500,135599093661458,1,14,splicing,,0,1,main,23958,0,24000,22000,2160,32812032 
+MAIN,135599093684666,135599093706583,1,15,pickleQuotes,,0,1,main,21917,0,22000,21000,2160,32812032 
+MAIN,135599093727541,135599166040583,1,16,MegaPhase{crossVersionChecks  firstTransform  checkReentrant  elimPackagePrefixes  cookComments  checkLoopingImplicits  betaReduce  inlineVals  expandSAMs  elimRepeated  refchecks  dropForMap},,0,1,main,72313042,0,51041000,50515000,3784408,37006336 
+MAIN,135599166109125,135599184242458,1,29,MegaPhase{protectedAccessors  extmethods  uncacheGivenAliases  checkStatic  elimByName  hoistSuperArgs  forwardDepChecks  specializeApplyMethods  tryCatchPatterns  patternMatcher},,0,1,main,18133333,0,16441000,16331000,1102176,37006336 
+MAIN,135599184347458,135599192847208,1,43,MegaPhase{elimOpaque  explicitOuter  explicitSelf  interpolators  dropBreaks},,0,1,main,8499750,0,7912000,7861000,463592,37006336 
+MAIN,135599192916875,135599202737500,1,48,MegaPhase{pruneErasedDefs  uninitialized  inlinePatterns  vcInlineMethods  seqLiterals  intercepted  getters  specializeFunctions  specializeTuples  collectNullableFields  elimOuterSelect  resolveSuper  functionXXLForwarders  paramForwarding  genericTuples  letOverApply  arrayConstructors},,0,1,main,9820625,0,9616000,9464000,597000,37006336 
+GC,135599244838125,135599248838125,1487, 1490,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,135599202803250,135599277124833,1,65,erasure,,0,1,main,74321583,0,62906000,62261000,15353256,34397696 
+MAIN,135599277190791,135599314083250,1,66,MegaPhase{elimErasedValueType  pureStats  vcElideAllocations  etaReduce  arrayApply  elimPolyFunction  tailrec  completeJavaEnums  mixin  lazyVals  memoize  nonLocalReturns  capturedVars},,0,1,main,36892459,0,27474000,26889000,2913888,38592000 
+MAIN,135599314160833,135599321064041,1,79,constructors,,0,1,main,6903208,0,6897000,6823000,768208,38592000 
+MAIN,135599321113083,135599354090750,1,80,MegaPhase{lambdaLift  elimStaticThis  countOuterAccesses},,0,1,main,32977667,0,15459000,15271000,1613032,38592000 
+MAIN,135599354150750,135599365545458,1,83,MegaPhase{dropOuterAccessors  dropParentRefinements  checkNoSuperThis  flatten  transformWildcards  moveStatic  expandPrivate  restoreScopes  selectStatic  Collect entry points  collectSuperCalls  repeatableAnnotations},,0,1,main,11394708,0,5763000,5705000,561776,38592000 
+GC,135599450549125,135599454549125,1692, 1695,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,135599365605541,135599518057875,1,95,genBCode,,0,1,main,152452334,0,132687000,129019000,14898792,41953216 

@@ -1,0 +1,29 @@
+info, 1, version, 2, output, /Users/craig/rt-workspace/scala3/compiler/../out/default-last-scalac-out.jar
+header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize
+header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads
+MAIN,135092450066166,135092514329666,1,1,parser,,0,1,main,64263500,0,58151000,56653000,6233632,36617392 
+GC,135092614972625,135092618972625,645, 648,G1 Young Generation,end of minor GC,G1 Preventive Collection,5
+GC,135092627808333,135092632808333,667, 671,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+GC,135092752425416,135092755425416,792, 794,G1 Young Generation,end of minor GC,Metadata GC Threshold,5
+MAIN,135092516436583,135093138163041,1,2,typer,,0,1,main,621726458,0,559923000,546736000,55529608,41218496 
+MAIN,135093138257458,135093138428250,1,3,inlinedPositions,,0,1,main,170792,0,170000,166000,26992,41218496 
+MAIN,135093138472666,135093237807333,1,6,posttyper,,0,1,main,99334667,0,78611000,76190000,8408776,49607104 
+MAIN,135093237900250,135093237949333,1,7,unrollDefs,,0,1,main,49083,0,50000,46000,2160,49607104 
+MAIN,135093237991875,135093293618416,1,9,pickler,,0,1,main,55626541,0,32699000,31644000,7950264,62190016 
+MAIN,135093293699791,135093293747416,1,11,inlining,,0,1,main,47625,0,47000,46000,2160,62190016 
+MAIN,135093293779625,135093293804833,1,12,postInlining,,0,1,main,25208,0,25000,24000,18112,62190016 
+MAIN,135093294732916,135093294771333,1,13,staging,,0,1,main,38417,0,39000,36000,2160,62190016 
+MAIN,135093294794916,135093294819208,1,14,splicing,,0,1,main,24292,0,24000,23000,2160,62190016 
+MAIN,135093294840666,135093294865625,1,15,pickleQuotes,,0,1,main,24959,0,25000,24000,2160,62190016 
+MAIN,135093294888208,135093371675958,1,16,MegaPhase{crossVersionChecks  firstTransform  checkReentrant  elimPackagePrefixes  cookComments  checkLoopingImplicits  betaReduce  inlineVals  expandSAMs  elimRepeated  refchecks  dropForMap},,0,1,main,76787750,0,56416000,55571000,4089872,66384320 
+MAIN,135093371748875,135093392472958,1,29,MegaPhase{protectedAccessors  extmethods  uncacheGivenAliases  checkStatic  elimByName  hoistSuperArgs  forwardDepChecks  specializeApplyMethods  tryCatchPatterns  patternMatcher},,0,1,main,20724083,0,18940000,18695000,1265840,66384320 
+MAIN,135093392583791,135093401612916,1,43,MegaPhase{elimOpaque  explicitOuter  explicitSelf  interpolators  dropBreaks},,0,1,main,9029125,0,8925000,8795000,535928,66384320 
+MAIN,135093401684625,135093412351333,1,48,MegaPhase{pruneErasedDefs  uninitialized  inlinePatterns  vcInlineMethods  seqLiterals  intercepted  getters  specializeFunctions  specializeTuples  collectNullableFields  elimOuterSelect  resolveSuper  functionXXLForwarders  paramForwarding  genericTuples  letOverApply  arrayConstructors},,0,1,main,10666708,0,10473000,10359000,674280,66384320 
+GC,135093452329875,135093459329875,1491, 1497,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,135093412422125,135093495335875,1,65,erasure,,0,1,main,82913750,0,66513000,65594000,15545280,33626624 
+GC,135093513010583,135093520010583,1553, 1559,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,135093495400041,135093540907916,1,66,MegaPhase{elimErasedValueType  pureStats  vcElideAllocations  etaReduce  arrayApply  elimPolyFunction  tailrec  completeJavaEnums  mixin  lazyVals  memoize  nonLocalReturns  capturedVars},,0,1,main,45507875,0,28607000,28033000,2941432,35264752 
+MAIN,135093540984541,135093557197083,1,79,constructors,,0,1,main,16212542,0,7098000,7015000,769248,35264752 
+MAIN,135093557253833,135093588711125,1,80,MegaPhase{lambdaLift  elimStaticThis  countOuterAccesses},,0,1,main,31457292,0,16756000,16245000,1634496,39459056 
+MAIN,135093588792958,135093596730250,1,83,MegaPhase{dropOuterAccessors  dropParentRefinements  checkNoSuperThis  flatten  transformWildcards  moveStatic  expandPrivate  restoreScopes  selectStatic  Collect entry points  collectSuperCalls  repeatableAnnotations},,0,1,main,7937292,0,6611000,6442000,563224,39459056 
+MAIN,135093596779208,135093740902416,1,95,genBCode,,0,1,main,144123208,0,129771000,126250000,15249160,52041968 

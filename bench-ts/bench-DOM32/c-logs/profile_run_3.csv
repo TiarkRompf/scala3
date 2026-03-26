@@ -1,0 +1,29 @@
+info, 1, version, 2, output, /Users/craig/rt-workspace/scala3/compiler/../out/default-last-scalac-out.jar
+header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize
+header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads
+MAIN,123328170597333,123328214067375,1,1,parser,,0,1,main,43470042,0,42156000,40838000,5597096,36617688 
+GC,123328320465000,123328324465000,617, 620,G1 Young Generation,end of minor GC,G1 Preventive Collection,5
+GC,123328341264166,123328346264166,643, 647,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,123328216358333,123328508236000,1,2,typer,,0,1,main,291877667,0,269371000,263799000,31302176,24652592 
+MAIN,123328508322583,123328508542166,1,3,inlinedPositions,,0,1,main,219583,0,190000,186000,26960,24652592 
+GC,123328512616833,123328515616833,812, 814,G1 Young Generation,end of minor GC,Metadata GC Threshold,5
+MAIN,123328508595875,123328560275625,1,6,posttyper,,0,1,main,51679750,0,36301000,35674000,5940768,20192608 
+MAIN,123328560362083,123328560412458,1,7,unrollDefs,,0,1,main,50375,0,50000,48000,2160,20192608 
+MAIN,123328560451000,123328590194416,1,9,pickler,,0,1,main,29743416,0,21948000,21477000,7513688,28581216 
+MAIN,123328590267250,123328590308458,1,11,inlining,,0,1,main,41208,0,41000,39000,2160,28581216 
+MAIN,123328590334000,123328590357458,1,12,postInlining,,0,1,main,23458,0,23000,23000,18112,28581216 
+MAIN,123328591236041,123328591272541,1,13,staging,,0,1,main,36500,0,36000,34000,2160,28581216 
+MAIN,123328591297208,123328591319541,1,14,splicing,,0,1,main,22333,0,23000,21000,2160,28581216 
+MAIN,123328591339541,123328591364791,1,15,pickleQuotes,,0,1,main,25250,0,26000,24000,2160,28581216 
+MAIN,123328591394416,123328622753500,1,16,MegaPhase{crossVersionChecks  firstTransform  checkReentrant  elimPackagePrefixes  cookComments  checkLoopingImplicits  betaReduce  inlineVals  expandSAMs  elimRepeated  refchecks  dropForMap},,0,1,main,31359084,0,29589000,29127000,2619096,32775520 
+MAIN,123328622830875,123328635001000,1,29,MegaPhase{protectedAccessors  extmethods  uncacheGivenAliases  checkStatic  elimByName  hoistSuperArgs  forwardDepChecks  specializeApplyMethods  tryCatchPatterns  patternMatcher},,0,1,main,12170125,0,10130000,9965000,751200,32775520 
+MAIN,123328635087291,123328639735208,1,43,MegaPhase{elimOpaque  explicitOuter  explicitSelf  interpolators  dropBreaks},,0,1,main,4647917,0,3479000,3446000,152688,32775520 
+MAIN,123328639784083,123328645927000,1,48,MegaPhase{pruneErasedDefs  uninitialized  inlinePatterns  vcInlineMethods  seqLiterals  intercepted  getters  specializeFunctions  specializeTuples  collectNullableFields  elimOuterSelect  resolveSuper  functionXXLForwarders  paramForwarding  genericTuples  letOverApply  arrayConstructors},,0,1,main,6142917,0,5943000,5855000,357368,32775520 
+GC,123328671497875,123328676497875,973, 977,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,123328645989000,123328717815666,1,65,erasure,,0,1,main,71826666,0,64446000,63616000,16690112,32826888 
+MAIN,123328717880583,123328745325250,1,66,MegaPhase{elimErasedValueType  pureStats  vcElideAllocations  etaReduce  arrayApply  elimPolyFunction  tailrec  completeJavaEnums  mixin  lazyVals  memoize  nonLocalReturns  capturedVars},,0,1,main,27444667,0,25761000,25378000,3015888,37021192 
+MAIN,123328745392500,123328753691166,1,79,constructors,,0,1,main,8298666,0,6396000,6322000,729576,37021192 
+MAIN,123328753740291,123328779001041,1,80,MegaPhase{lambdaLift  elimStaticThis  countOuterAccesses},,0,1,main,25260750,0,16124000,15556000,1798680,37021192 
+MAIN,123328779213625,123328784272791,1,83,MegaPhase{dropOuterAccessors  dropParentRefinements  checkNoSuperThis  flatten  transformWildcards  moveStatic  expandPrivate  restoreScopes  selectStatic  Collect entry points  collectSuperCalls  repeatableAnnotations},,0,1,main,5059166,0,4614000,4555000,524104,37021192 
+GC,123328906569458,123328911569458,1208, 1212,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,123328784320250,123328931030041,1,95,genBCode,,0,1,main,146709791,0,126622000,123650000,14554480,33238016 
