@@ -1,27 +1,27 @@
 info, 1, version, 2, output, /Users/craig/rt-workspace/scala3/compiler/../out/default-last-scalac-out.jar
 header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize
 header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads
-MAIN,123320082902083,123320124752666,1,1,parser,,0,1,main,41850583,0,40380000,39089000,5597096,36611648 
-GC,123320233201541,123320238201541,613, 617,G1 Young Generation,end of minor GC,G1 Preventive Collection,5
-GC,123320253233916,123320259233916,643, 648,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
-MAIN,123320125930250,123320433350500,1,2,typer,,0,1,main,307420250,0,283133000,276429000,31283424,28306192 
-MAIN,123320433444750,123320433616166,1,3,inlinedPositions,,0,1,main,171416,0,171000,170000,26960,28306192 
-GC,123320435793333,123320438793333,825, 827,G1 Young Generation,end of minor GC,Metadata GC Threshold,5
-MAIN,123320433658333,123320501396875,1,6,posttyper,,0,1,main,67738542,0,36674000,35597000,5941248,20367488 
-MAIN,123320501479500,123320501525375,1,7,unrollDefs,,0,1,main,45875,0,46000,44000,2160,20367488 
-MAIN,123320501561958,123320533404250,1,9,pickler,,0,1,main,31842292,0,21821000,20715000,7524920,28756096 
-MAIN,123320533479208,123320533526375,1,11,inlining,,0,1,main,47167,0,46000,42000,2160,28756096 
-MAIN,123320533551625,123320533588916,1,12,postInlining,,0,1,main,37291,0,37000,25000,18112,28756096 
-MAIN,123320534473833,123320534508916,1,13,staging,,0,1,main,35083,0,35000,33000,2160,28756096 
-MAIN,123320534536416,123320534560083,1,14,splicing,,0,1,main,23667,0,24000,22000,2160,28756096 
-MAIN,123320534582125,123320534604833,1,15,pickleQuotes,,0,1,main,22708,0,23000,22000,2160,28756096 
-MAIN,123320534627958,123320566339333,1,16,MegaPhase{crossVersionChecks  firstTransform  checkReentrant  elimPackagePrefixes  cookComments  checkLoopingImplicits  betaReduce  inlineVals  expandSAMs  elimRepeated  refchecks  dropForMap},,0,1,main,31711375,0,30268000,29709000,2666488,32950400 
-MAIN,123320566404083,123320578422833,1,29,MegaPhase{protectedAccessors  extmethods  uncacheGivenAliases  checkStatic  elimByName  hoistSuperArgs  forwardDepChecks  specializeApplyMethods  tryCatchPatterns  patternMatcher},,0,1,main,12018750,0,10094000,9924000,761760,32950400 
-MAIN,123320578502625,123320581954750,1,43,MegaPhase{elimOpaque  explicitOuter  explicitSelf  interpolators  dropBreaks},,0,1,main,3452125,0,3405000,3360000,153008,32950400 
-MAIN,123320581995666,123320588667541,1,48,MegaPhase{pruneErasedDefs  uninitialized  inlinePatterns  vcInlineMethods  seqLiterals  intercepted  getters  specializeFunctions  specializeTuples  collectNullableFields  elimOuterSelect  resolveSuper  functionXXLForwarders  paramForwarding  genericTuples  letOverApply  arrayConstructors},,0,1,main,6671875,0,5842000,5710000,362696,32950400 
-MAIN,123320588718666,123320655606416,1,65,erasure,,0,1,main,66887750,0,62957000,61054000,16960888,49727616 
-MAIN,123320655666500,123320685311666,1,66,MegaPhase{elimErasedValueType  pureStats  vcElideAllocations  etaReduce  arrayApply  elimPolyFunction  tailrec  completeJavaEnums  mixin  lazyVals  memoize  nonLocalReturns  capturedVars},,0,1,main,29645166,0,26184000,25521000,3056256,53921920 
-MAIN,123320685398041,123320695788333,1,79,constructors,,0,1,main,10390292,0,7113000,6968000,734568,53921920 
-MAIN,123320695852500,123320725544708,1,80,MegaPhase{lambdaLift  elimStaticThis  countOuterAccesses},,0,1,main,29692208,0,19265000,18441000,1817736,53921920 
-MAIN,123320725619208,123320731134791,1,83,MegaPhase{dropOuterAccessors  dropParentRefinements  checkNoSuperThis  flatten  transformWildcards  moveStatic  expandPrivate  restoreScopes  selectStatic  Collect entry points  collectSuperCalls  repeatableAnnotations},,0,1,main,5515583,0,5468000,5388000,535264,58116224 
-MAIN,123320731213375,123320903933416,1,95,genBCode,,0,1,main,172720041,0,131467000,126897000,14633552,70699136 
+MAIN,158848626429500,158848670255250,1,1,parser,,0,1,main,43825750,0,42323000,40868000,5597024,36600448 
+GC,158848770733375,158848774733375,628, 631,G1 Young Generation,end of minor GC,G1 Preventive Collection,5
+GC,158848787999833,158848792999833,653, 657,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,158848672563958,158848969855875,1,2,typer,,0,1,main,297291917,0,275664000,268822000,31272320,28747616 
+MAIN,158848969957083,158848970130375,1,3,inlinedPositions,,0,1,main,173292,0,173000,169000,26960,28747616 
+GC,158848974819416,158848977819416,840, 842,G1 Young Generation,end of minor GC,Metadata GC Threshold,5
+MAIN,158848970175875,158849039382125,1,6,posttyper,,0,1,main,69206250,0,37797000,36853000,5942416,24736872 
+MAIN,158849039467166,158849039520916,1,7,unrollDefs,,0,1,main,53750,0,54000,52000,2160,24736872 
+MAIN,158849039560375,158849094045875,1,9,pickler,,0,1,main,54485500,0,27111000,25983000,7524368,33125480 
+MAIN,158849094130041,158849094177791,1,11,inlining,,0,1,main,47750,0,47000,46000,2160,33125480 
+MAIN,158849094206166,158849094231666,1,12,postInlining,,0,1,main,25500,0,26000,24000,18112,33125480 
+MAIN,158849095484166,158849095522250,1,13,staging,,0,1,main,38084,0,38000,36000,2160,33125480 
+MAIN,158849095545541,158849095569666,1,14,splicing,,0,1,main,24125,0,24000,23000,2160,33125480 
+MAIN,158849095590250,158849095614208,1,15,pickleQuotes,,0,1,main,23958,0,24000,23000,2160,33125480 
+MAIN,158849095644500,158849128183000,1,16,MegaPhase{crossVersionChecks  firstTransform  checkReentrant  elimPackagePrefixes  cookComments  checkLoopingImplicits  betaReduce  inlineVals  expandSAMs  elimRepeated  refchecks  dropForMap},,0,1,main,32538500,0,30331000,29600000,2672744,37319784 
+MAIN,158849128251250,158849140301500,1,29,MegaPhase{protectedAccessors  extmethods  uncacheGivenAliases  checkStatic  elimByName  hoistSuperArgs  forwardDepChecks  specializeApplyMethods  tryCatchPatterns  patternMatcher},,0,1,main,12050250,0,10003000,9813000,762784,37319784 
+MAIN,158849140391958,158849143544250,1,43,MegaPhase{elimOpaque  explicitOuter  explicitSelf  interpolators  dropBreaks},,0,1,main,3152292,0,3090000,3052000,153040,37319784 
+MAIN,158849143583291,158849151852333,1,48,MegaPhase{pruneErasedDefs  uninitialized  inlinePatterns  vcInlineMethods  seqLiterals  intercepted  getters  specializeFunctions  specializeTuples  collectNullableFields  elimOuterSelect  resolveSuper  functionXXLForwarders  paramForwarding  genericTuples  letOverApply  arrayConstructors},,0,1,main,8269042,0,6466000,6365000,363984,37319784 
+MAIN,158849151898958,158849217528958,1,65,erasure,,0,1,main,65630000,0,62263000,60028000,16959952,54097000 
+MAIN,158849217589083,158849249193041,1,66,MegaPhase{elimErasedValueType  pureStats  vcElideAllocations  etaReduce  arrayApply  elimPolyFunction  tailrec  completeJavaEnums  mixin  lazyVals  memoize  nonLocalReturns  capturedVars},,0,1,main,31603958,0,26825000,26228000,3054088,58291304 
+MAIN,158849249265458,158849259813250,1,79,constructors,,0,1,main,10547792,0,7527000,7096000,734000,58291304 
+MAIN,158849259868875,158849284132291,1,80,MegaPhase{lambdaLift  elimStaticThis  countOuterAccesses},,0,1,main,24263416,0,16224000,15601000,1817736,58291304 
+MAIN,158849284204291,158849294941541,1,83,MegaPhase{dropOuterAccessors  dropParentRefinements  checkNoSuperThis  flatten  transformWildcards  moveStatic  expandPrivate  restoreScopes  selectStatic  Collect entry points  collectSuperCalls  repeatableAnnotations},,0,1,main,10737250,0,5188000,4902000,535264,58291304 
+MAIN,158849295000416,158849433837041,1,95,genBCode,,0,1,main,138836625,0,121988000,117642000,14588448,75068520 

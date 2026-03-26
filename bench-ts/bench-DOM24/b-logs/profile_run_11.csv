@@ -1,0 +1,28 @@
+info, 1, version, 2, output, /Users/craig/rt-workspace/scala3/compiler/../out/default-last-scalac-out.jar
+header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize
+header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads
+MAIN,159000885776166,159000941798458,1,1,parser,,0,1,main,56022292,0,53399000,51805000,6103384,36607544 
+GC,159001035229208,159001039229208,615, 618,G1 Young Generation,end of minor GC,G1 Preventive Collection,5
+GC,159001052231041,159001057231041,637, 641,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+GC,159001198987375,159001202987375,784, 787,G1 Young Generation,end of minor GC,GCLocker Initiated GC,5
+MAIN,159000942841166,159001472055833,1,2,typer,,0,1,main,529214667,0,488082000,480087000,52782776,38623984 
+MAIN,159001472151291,159001472321333,1,3,inlinedPositions,,0,1,main,170042,0,171000,167000,26992,38623984 
+MAIN,159001472368750,159001560535666,1,6,posttyper,,0,1,main,88166916,0,70284000,69338000,7331184,42818288 
+MAIN,159001560612166,159001560660958,1,7,unrollDefs,,0,1,main,48792,0,48000,47000,2160,42818288 
+GC,159001571331458,159001576331458,1156, 1160,G1 Young Generation,end of minor GC,G1 Evacuation Pause,5
+MAIN,159001560695500,159001595563208,1,9,pickler,,0,1,main,34867708,0,29715000,29071000,7909456,33179136 
+MAIN,159001595672333,159001595732833,1,11,inlining,,0,1,main,60500,0,61000,58000,2160,33179136 
+MAIN,159001595763333,159001595790458,1,12,postInlining,,0,1,main,27125,0,28000,26000,18112,33179136 
+MAIN,159001596803958,159001596846708,1,13,staging,,0,1,main,42750,0,43000,39000,2160,33179136 
+MAIN,159001596871583,159001596896583,1,14,splicing,,0,1,main,25000,0,25000,24000,2160,33179136 
+MAIN,159001596917000,159001596940375,1,15,pickleQuotes,,0,1,main,23375,0,25000,21000,2160,33179136 
+MAIN,159001596961541,159001662543958,1,16,MegaPhase{crossVersionChecks  firstTransform  checkReentrant  elimPackagePrefixes  cookComments  checkLoopingImplicits  betaReduce  inlineVals  expandSAMs  elimRepeated  refchecks  dropForMap},,0,1,main,65582417,0,46848000,45988000,3781424,37373440 
+MAIN,159001662608833,159001680977625,1,29,MegaPhase{protectedAccessors  extmethods  uncacheGivenAliases  checkStatic  elimByName  hoistSuperArgs  forwardDepChecks  specializeApplyMethods  tryCatchPatterns  patternMatcher},,0,1,main,18368792,0,15700000,15585000,1101792,37373440 
+MAIN,159001681050750,159001688412250,1,43,MegaPhase{elimOpaque  explicitOuter  explicitSelf  interpolators  dropBreaks},,0,1,main,7361500,0,7204000,7122000,462952,37373440 
+MAIN,159001688469625,159001697678416,1,48,MegaPhase{pruneErasedDefs  uninitialized  inlinePatterns  vcInlineMethods  seqLiterals  intercepted  getters  specializeFunctions  specializeTuples  collectNullableFields  elimOuterSelect  resolveSuper  functionXXLForwarders  paramForwarding  genericTuples  letOverApply  arrayConstructors},,0,1,main,9208791,0,8793000,8705000,596616,37373440 
+MAIN,159001697724625,159001766873083,1,65,erasure,,0,1,main,69148458,0,62698000,60254000,15343496,54150656 
+MAIN,159001766944125,159001804941375,1,66,MegaPhase{elimErasedValueType  pureStats  vcElideAllocations  etaReduce  arrayApply  elimPolyFunction  tailrec  completeJavaEnums  mixin  lazyVals  memoize  nonLocalReturns  capturedVars},,0,1,main,37997250,0,26557000,25517000,2913776,54150656 
+MAIN,159001805015625,159001818200833,1,79,constructors,,0,1,main,13185208,0,6919000,6752000,768224,58344960 
+MAIN,159001818259541,159001838394250,1,80,MegaPhase{lambdaLift  elimStaticThis  countOuterAccesses},,0,1,main,20134709,0,15433000,14880000,1613136,58344960 
+MAIN,159001838456416,159001856512416,1,83,MegaPhase{dropOuterAccessors  dropParentRefinements  checkNoSuperThis  flatten  transformWildcards  moveStatic  expandPrivate  restoreScopes  selectStatic  Collect entry points  collectSuperCalls  repeatableAnnotations},,0,1,main,18056000,0,5850000,5685000,561656,58344960 
+MAIN,159001856566208,159001999876666,1,95,genBCode,,0,1,main,143310458,0,127211000,121844000,14899480,75122176 
