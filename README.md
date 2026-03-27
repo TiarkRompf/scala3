@@ -1,18 +1,11 @@
 # Artifact for "Typestate via Revocable Capabilities"
 
-## Overview
-
 This artifact is for the paper "Typestate via Revocable Capabilities".
 
 Folder [`scala3`](scala3) contains the implementation of our Scala 3 compiler prototype
 as described in Section 5.
 
-<!-- add file by file comparison + talk about limitations, known bugs, what subset of Scala.
-     need to talk about differences between our work and capturing types! -->
-
 ## Getting Started Guide
-
-## Setup
 
 ### Requirements
 
@@ -22,64 +15,84 @@ as described in Section 5.
 Following the [Getting Started User Guide](http://nightly.scala-lang.org/docs/contributing/index.html), any JDK version listed
 in [JDK Compatability](https://docs.scala-lang.org/overviews/jdk-compatibility/overview.html) should work, as well as the latest sbt version.
 
+For the purpose of artifact evaluation, we provide the environment in a Docker image:
+
+    docker image load -i image.tar.gz
+    docker run -it --rm typestate-scala3:latest
+
+### Kick the Tires
+
+To quickly check all examples, in the Docker image (default path `/work`):
+
+    ./checkExamples.sh
+
+
+## Step-by-Step Instructions
+
 ### Compiling and Running
 
 The Scala 3 compiler provides a standard `sbt` build.
 
 To compile and run the compiler, first start an `sbt` shell in the `scala3` directory:
 
-```
-  cd scala3
-  sbt
-```
+    cd scala3
+    sbt
 
 Once within the `sbt` shell, compiling a file is achieved by invoking `scalac` on
 the desired file:
-```
-scalac tests/pos/HelloWorld.scala
-```
+
+    scalac tests/pos/HelloWorld.scala
 
 Running a compiled file within the `sbt` shell is achieved by invoking `scala` on
 the classpath of the file:
-```
-scala HelloWorld
-```
+
+    scala HelloWorld
 
 ### Running Compilation Tests
 
 To run the 373 compilation tests for capture checking (as stated in Section 5), invoke:
-```
-testCompilation captures
-```
+
+    testCompilation captures
 
 The test case
-```tests/run-custom-args/captures/minicheck.scala``` may fail when running the test suite,
+`tests/run-custom-args/captures/minicheck.scala` may fail when running the test suite,
 but succeeds when ran on its own. If this test case fails during the test suite, then the
 `testCompilation captures` command will provide reproduction instructions for this test case.
+Some thing like:
+
+    ...
+    ================================================================================
+    Test Report
+    ================================================================================
+
+    2 suites passed, 1 failed, 3 total
+        tests/run-custom-args/captures/minicheck.scala failed
+
+    --------------------------------------------------------------------------------
+    Note - reproduction instructions have been dumped to log file:
+        /work/scala3/testlogs/tests-2026-03-14/tests-2026-03-14-T20-39-45.log
+    --------------------------------------------------------------------------------
+    ...
+
+And inside the log file:
+
+    ...
+    ================================================================================
+    Test Report
+    ================================================================================
+
+    2 suites passed, 1 failed, 3 total
+        tests/run-custom-args/captures/minicheck.scala failed
+
+    Test 'tests/run-custom-args/captures/minicheck.scala' compiled with 1 error(s) and 0 warning(s),
+    the test can be reproduced by running from SBT (prefix it with ./bin/ if you
+    want to run from the command line):
+
+    scalac -classpath /root/.cache/coursier/v1/https/repo1.maven.org/maven2/org/scala-lang/scala-library/2.13.16/scala-library-2.13.16.jar:/work/scala3/library/../out/bootstrap/scala3-library-bootstrapped/scala-3.7.2-RC1-bin-SNAPSHOT-nonbootstrapped/scala3-library_3-3.7.2-RC1-bin-SNAPSHOT.jar  -indent -Yno-double-bindings -Yforce-sbt-phases -Xsemanticdb -Xverify-signatures -pagewidth  120 -color:never -Xtarget 9 -Ycheck:all -language:experimental.captureChecking  'tests/run-custom-args/captures/minicheck.scala'
+
 Note that the reproduction instructions state that the command to run the test case will end
 with `'tests/run-custom-args/captures/minicheck.scala'`. Please remove the apostrophes
 when running the command.
-
-## Step-by-Step Instructions
-
-### Enabling Typestate Extensions
-
-This section details how to enable our compiler extensions.
-First, enable [capture checking](https://docs.scala-lang.org/scala3/reference/experimental/cc.html) with an
-import at the top of the file:
-```
-import language.experimental.captureChecking
-```
-
-Then import the typestate definitions with
-```
-import typestate.*
-```
-
-The typestate definitions can be found in the file
-```
-library/src/scala/typestate/package.scala
-```
 
 ### Paper Figure to Artifact Correspondence
 
@@ -146,110 +159,119 @@ is `compiler/src/dotty/tools/dotc/typer/Typer.scala`):
 
 ### Deviations from the Paper
 
-The Scala compiler requires parenthesization between `^` and `@`:
-```
-def open(f: ClosedFile^): (OpenFile^) @kill(f)
-```
-whereas the paper omits parantheses for readability:
-```
-def open(f: ClosedFile^): OpenFile^ @kill(f)
-```
+1. The Scala compiler requires parenthesization between `^` and `@`:
 
-Scala 3 does not currently support curried implicit dependent function types.
-This means examples involving curried implicit dependent higher-order functions, such as `makeDOM` (Section 3.2)
-need to explicitly bind arguments:
+        def open(f: ClosedFile^): (OpenFile^) @kill(f)
 
-```
-makeDOM { dom => c =>
-  ...
-}
-```
+    whereas the paper omits parantheses for readability:
 
-Code examples in the paper omit this:
-```
-makeDOM { dom =>
-  ...
-}
-```
+        def open(f: ClosedFile^): OpenFile^ @kill(f)
 
-Note that there is a footnote in the paper describing this omission.
+2. Scala 3 does not currently support curried implicit dependent function types.
+    This means examples involving curried implicit dependent higher-order functions, such as `makeDOM` (Section 3.2)
+    need to explicitly bind arguments:
 
-In Figure 7, some upper type bounds are elided for space (this is stated in the paper).
-For example, method `send` in the figure has signature
+        makeDOM { dom => c =>
+          ...
+        }
 
-```
-def send[T, E, P](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
-```
+    Code examples in the paper omit this:
 
-but in Scala will have the signature
+        makeDOM { dom =>
+          ...
+        }
 
-```
-def send[T, E <: PList, P <: Session](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
-```
+    Note that there is a footnote in the paper describing this omission.
 
-Method return types are omitted for the same reason in figure 8.
+3. In Figure 7, some upper type bounds are elided for space (this is stated in the paper).
+    For example, method `send` in the figure has signature
+
+        def send[T, E, P](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
+
+    but in Scala will have the signature
+
+        def send[T, E <: PList, P <: Session](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
+
+    Method return types are omitted for the same reason in figure 8.
 
 
-### Prototype Coverage
+## Reusability Guide
 
-As stated in Section 5, our prototype is meant to cover a core subset of Scala
-where reachability types align closely to capturing types. In particular,
-our effect checker works for STLC core of Scala, or our effect checkers
-functions correctly with respect to higher-order functions.
+### Enable the Typestate Extension in a New File
 
-Therefore, there are major features of Scala omitted from the prototype. In particular, destructive
-effects do not work on mutable variables and object fields; attempting to
-kill them will not have an effect.
+This section details how to enable our compiler extensions.
+First, enable [capture checking](https://docs.scala-lang.org/scala3/reference/experimental/cc.html) with an
+import at the top of the file:
+
+    import language.experimental.captureChecking
+
+Then import the typestate definitions with
+
+    import typestate.*
+
+The typestate definitions can be found in the file
+
+    library/src/scala/typestate/package.scala
+
+### Prototype Status
+
+Our modifications to the Scala compiler and capturing checker are meant to be a prototype
+demonstrating the paradigm of typestate programming, but not a full language
+development ready for practical adoption.
+As stated in Section 5, our prototype concerns a core subset of Scala
+where reachability types align closely to capturing types.
+Therefore, there are major features of Scala omitted from the prototype.
+
+Specifically, our effect checker focuses on a functional core of Scala, and it
+works correctly with respect to higher-order functions regarding capabilities passed
+as parameters and stored as local variables. Beyond this core,
+destructive effects do not work on mutable variables and object fields; attempting to
+kill them will pass silently without actually inducing the effect.
 
 We also restrict destructive effects on polymorphic variables
 This is because capturing types posses a "boxing" discipline, where upon a type
-entering a generic context, its capture set is hidden.
+entering a generic context, its capture set is hidden:
 
-```
-def foo[T](x: T): Unit =
-  kill(x)
+    def foo[T](x: T): Unit =
+      kill(x)
 
-def bar() =
-  val f: File^ = ...
-  val f2 = f
+    def bar() =
+      val f: File^ = ...
+      val f2 = f
 
-  foo(f2) // f2 will appear with no capture set inside foo
-```
+      foo(f2) // f2 will appear with no capture set inside foo
 
-As a result, naively killing
-terms with such types is unsound due to loss of capturing information.
-Destroying such a variable will result in a compile-time error.
+Inside `foo`, we cannot mark `x` killed without knowing its capturing information.
+In our prototype, destroying such a variable will result in a compile-time error.
+More generally, as reachability types and capturing types employ different
+mechanisms to represent resources that are not fully named–i.e., fresh or
+existential, our prototype cannot be true to both but leave those cases unhandled.
 
-Another point to emphasize is the key difference between reachability types
-and the implementation of capturing types. Importantly, capturing types overload the meaning of the
-top capability `^` as something that could represent both fresh and function self-reference in reachability types.
-TODO
+With our limitations regarding object fields and polymorphism, our prototype
+does not understand `Sigma` as a generic datatype, but a transient wrapper for
+ANF transformation, unpacked immediately after returning. We do not expect it to work,
+for example, storing a  list of Sigma values.
+The type-directed ANF transform does not cover all Scala features, either.
+It is currently triggered by an application node having type `Sigma`. Thus,
+some cases where a transform should be triggered may actually not,
+such as nesting an application inside a block:
 
-The `Sigma`-type directed ANF transform also does not cover all Scala features. It is currently
-only triggered by an application node having type `Sigma`. This means that cases
-which should trigger a transform do not do so, such as nesting an application inside a block
-```
-  val k = {
-    open(f)
-  }
-```
+    val k = {
+      open(f)
+    }
 
-Nevertheless, we believe that a full implementation of `Sigma` is an effort in engineering,
-and its current role sufices for our use cases.
+Nevertheless, we believe that a full implementation of `Sigma` could be achieved with
+additional engineering efforts, but its current role suffices for our use cases.
 
 ### Using the Prototype in Local Projects
 
 To use our prototype in a local project, first run
 
-```
-sbt publishLocal
-```
+    sbt publishLocal
 
 Error messages that occur during the publishing process can be ignored.
 Then, in the `build.sbt` file of the local project, add the following line:
 
-```
-ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"
-```
+    ThisBuild / scalaVersion := "3.7.2-RC1-bin-SNAPSHOT"
 
-See [publishing to local repository](https://nightly.scala-lang.org/docs/contributing/getting-started.html#publish-to-local-repository).
+See also [publishing to local repository](https://nightly.scala-lang.org/docs/contributing/getting-started.html#publish-to-local-repository).
