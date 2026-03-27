@@ -3,7 +3,7 @@ import os
 import statistics
 
 # CONFIGURATION
-LOG_DIR = "bench-ts/bench-DOM24/c-logs"
+LOG_DIR = "bench-ts/bench-DOM17/F-logs"
 WARMUP_COUNT = 5
 COLLECT_COUNT = 10
 
