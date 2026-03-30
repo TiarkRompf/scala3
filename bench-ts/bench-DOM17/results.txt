@@ -1,4 +1,4 @@
-Full example (F.scala):
+17F (F.Scala):
 Phase                |   Avg Time (ms) |    Std Dev (ms) |  Runs
 ----------------------------------------------------------------
 1. typer             |          795.26 |           20.43 |    10
@@ -9,7 +9,7 @@ Phase                |   Avg Time (ms) |    Std Dev (ms) |  Runs
 TOTAL                |         2496.56 |           41.27 |    10
 
 
-Only Implicit Path-Dependent Capabillities (I.scala):
+17I (I.scala):
 Phase                |   Avg Time (ms) |    Std Dev (ms) |  Runs
 ----------------------------------------------------------------
 1. typer             |          499.78 |            5.16 |    10
@@ -20,7 +20,7 @@ Phase                |   Avg Time (ms) |    Std Dev (ms) |  Runs
 TOTAL                |         1058.50 |           21.26 |    10
 
 
-All capabilities erased (E.scala):
+17E (E.scala):
 Phase                |   Avg Time (ms) |    Std Dev (ms) |  Runs
 ----------------------------------------------------------------
 1. typer             |          275.20 |            9.94 |    10

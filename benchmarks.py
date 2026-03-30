@@ -2,8 +2,8 @@ import subprocess
 import os
 
 # CONFIGURATION
-FILE_NAME = "bench-ts/bench-DOM24/c.scala"
-LOG_DIR = "bench-ts/bench-DOM24/c-logs"
+FILE_NAME = "bench-ts/bench-DOM33/F.scala"
+LOG_DIR = "bench-ts/bench-DOM33/F-logs"
 NUM_RUNS = 15
 #
 
