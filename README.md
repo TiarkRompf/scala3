@@ -141,7 +141,9 @@ We do this because the full implementation of these examples is both non-novel a
 This does not deviate from any figure shown in the paper.
 
 ### Performance Benchmark (Figure 13)
-This section describes how to reproduce the performance benchmark obtained in Figure 13 of the paper.
+This section describes how to reproduce the performance benchmark obtained in Figure 13 of the paper. For a quick start, run
+
+    ./runAllBenchmarks.sh
 
 #### Benchmark Organization
 The benchmark statistics can found in the `bench-ts/` directory.
