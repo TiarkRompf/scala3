@@ -206,6 +206,12 @@ to use `benchmarks.py`:
 
 After running the benchmarks with `benchmarks.py`, the statistics can be viewed with `bcalc.py`.
 
+#### Known Issues
+
+`33F` may fail for x64 Linux users with a Stack Overflow error.
+Currently, we are not aware of effective remedies. Still, the case
+passes stably in our macOS development environment.
+
 ### Compiler Modifications
 
 This section describes the major modifications made to the Scala 3 compiler.
