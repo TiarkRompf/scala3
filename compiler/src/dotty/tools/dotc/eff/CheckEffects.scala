@@ -235,6 +235,20 @@ class CheckEffects extends Recheck:
       super.recheckIdent(tree, pt)
     end recheckIdent
 
+    override def recheckSelection(tree: Select, qualType: Type, name: Name, pt: Type)(using Context): Type =
+      def disambiguate(denot: Denotation): Denotation = denot match
+        case MultiDenotation(denot1, denot2) =>
+          withMode(Mode.IgnoreCaptures) {
+            disambiguate(denot1).meet(disambiguate(denot2), qualType)
+          }
+        case _ => denot
+
+      val selType = super.recheckSelection(tree, qualType, name, disambiguate)
+
+      selType.widenSingleton match
+        case tp: ExprType if tree.symbol.is(Method) => tp
+        case _ => selType
+    end recheckSelection
 
     override def recheckLabeled(tree: Labeled, pt: Type)(using Context): Type = tree match
       case Labeled(bind, expr) =>

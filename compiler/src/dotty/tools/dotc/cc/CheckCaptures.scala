@@ -706,6 +706,10 @@ class CheckCaptures extends Recheck, SymTransformer:
             tree.srcPos)
 
       val selType = mapResultRoots(recheckSelection(tree, qualType, name, disambiguate), tree.symbol)
+      selType match
+        case tp: ExprType if tree.symbol.is(Method) =>
+          keepOldTypes.add(tree)
+        case _ =>
       val selWiden = selType.widen
 
       // Don't apply the rule

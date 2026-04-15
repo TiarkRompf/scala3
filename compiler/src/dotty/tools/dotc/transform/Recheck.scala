@@ -157,6 +157,8 @@ abstract class Recheck extends Phase, SymTransformer:
 
     private val nuTypes = util.EqHashMap[Tree, Type]()
 
+    protected val keepOldTypes = util.EqHashSet[Tree]()
+
     extension [T <: Tree](tree: T)
 
       /** Set new type of the tree if none was installed yet and the new type is different
@@ -569,7 +571,7 @@ abstract class Recheck extends Phase, SymTransformer:
      */
     def recheckFinish(tpe: Type, tree: Tree, pt: Type)(using Context): Type =
       val tpe1 = checkConforms(tpe, pt, tree)
-      tree.setNuType(tpe1)
+      if keepOldTypes.lookup(tree) eq null then tree.setNuType(tpe1)
       tpe1
 
     def recheck(tree: Tree, pt: Type = WildcardType)(using Context): Type =
