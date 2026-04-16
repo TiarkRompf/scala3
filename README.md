@@ -15,6 +15,7 @@ as described in Section 4.
 Following the [Getting Started User Guide](http://nightly.scala-lang.org/docs/contributing/index.html), any JDK version listed
 in [JDK Compatability](https://docs.scala-lang.org/overviews/jdk-compatibility/overview.html) should work, as well as the latest sbt version.
 
+Some scripts require utilities in GNU style.
 For the purpose of artifact evaluation, we provide the environment in a Docker image:
 
     docker image load -i image.tar.gz
@@ -114,7 +115,7 @@ This section describes how to reproduce the performance benchmark obtained in Fi
 
     ./runAllBenchmarks.sh
 
-The benchmark should finish within an hour, with textual results printed in the end.
+The benchmark should run for about half an hour, with textual results printed in the end.
 
 #### Benchmark Organization
 The benchmark statistics can found in the `bench-ts/` directory.
