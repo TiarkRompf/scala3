@@ -100,6 +100,15 @@ Other examples use `???` to implement certain methods, which will result in a ru
 We do this because the full implementation of these examples is both non-novel and orthogonal to our contribution.
 This does not deviate from any figure shown in the paper.
 
+While we provide all examples in positive versions, negative examples can be easily derived.
+We encourgae readers to try out themselves. A few examples:
+
+- Uncomment L.66 in `examples/File.scala`
+- Add `f.close()` before L.72 in `examples/File.scala`
+- Uncomment L.159 in `examples/DOM.scala`
+- Comment out L.57,59,61 in `examples/TableLock.scala`
+- Remove `.right()` on L.102 in `examples/SessionExp.scala`
+
 ### Performance Benchmark (Figure 13)
 This section describes how to reproduce the performance benchmark obtained in Figure 13 of the paper. For a quick start, run
 
