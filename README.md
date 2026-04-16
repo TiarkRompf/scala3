@@ -9,7 +9,7 @@ as described in Section 5.
 
 ### Requirements
 
-- **JDK version**: Eclipse Adoptium Temurin 17.0.14
+- **JDK version**: 17.0.* (Temurin or OpenJDK)
 - **sbt version**: 1.10.7
 
 Following the [Getting Started User Guide](http://nightly.scala-lang.org/docs/contributing/index.html), any JDK version listed
@@ -53,46 +53,6 @@ the classpath of the file:
 To run the 373 compilation tests for capture checking (as stated in Section 5), invoke:
 
     testCompilation captures
-
-The test case
-`tests/run-custom-args/captures/minicheck.scala` may fail when running the test suite,
-but succeeds when ran on its own. If this test case fails during the test suite, then the
-`testCompilation captures` command will provide reproduction instructions for this test case.
-Some thing like:
-
-    ...
-    ================================================================================
-    Test Report
-    ================================================================================
-
-    2 suites passed, 1 failed, 3 total
-        tests/run-custom-args/captures/minicheck.scala failed
-
-    --------------------------------------------------------------------------------
-    Note - reproduction instructions have been dumped to log file:
-        /work/scala3/testlogs/tests-2026-03-14/tests-2026-03-14-T20-39-45.log
-    --------------------------------------------------------------------------------
-    ...
-
-And inside the log file:
-
-    ...
-    ================================================================================
-    Test Report
-    ================================================================================
-
-    2 suites passed, 1 failed, 3 total
-        tests/run-custom-args/captures/minicheck.scala failed
-
-    Test 'tests/run-custom-args/captures/minicheck.scala' compiled with 1 error(s) and 0 warning(s),
-    the test can be reproduced by running from SBT (prefix it with ./bin/ if you
-    want to run from the command line):
-
-    scalac -classpath /root/.cache/coursier/v1/https/repo1.maven.org/maven2/org/scala-lang/scala-library/2.13.16/scala-library-2.13.16.jar:/work/scala3/library/../out/bootstrap/scala3-library-bootstrapped/scala-3.7.2-RC1-bin-SNAPSHOT-nonbootstrapped/scala3-library_3-3.7.2-RC1-bin-SNAPSHOT.jar  -indent -Yno-double-bindings -Yforce-sbt-phases -Xsemanticdb -Xverify-signatures -pagewidth  120 -color:never -Xtarget 9 -Ycheck:all -language:experimental.captureChecking  'tests/run-custom-args/captures/minicheck.scala'
-
-Note that the reproduction instructions state that the command to run the test case will end
-with `'tests/run-custom-args/captures/minicheck.scala'`. Please remove the apostrophes
-when running the command.
 
 ### Paper Example to Artifact Correspondence
 
@@ -205,12 +165,6 @@ to use `benchmarks.py`:
    `LOG_DIR` with the log files.
 
 After running the benchmarks with `benchmarks.py`, the statistics can be viewed with `bcalc.py`.
-
-#### Known Issues
-
-`33F` may fail for x64 Linux users with a Stack Overflow error.
-Currently, we are not aware of effective remedies. Still, the case
-passes stably in our macOS development environment.
 
 ### Compiler Modifications
 
