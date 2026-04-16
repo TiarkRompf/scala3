@@ -15,6 +15,7 @@ for series in 17 25 33; do
     for variant in F I E; do
         file_name="${bench_dir}/${variant}.scala"
         log_dir="${bench_dir}/${variant}-logs"
+        find "$log_dir" -name "*.csv" -delete
 
         echo "=== DOM${series} / ${variant} ==="
 
