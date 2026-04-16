@@ -232,6 +232,7 @@ object Build {
   val sbtCommunityBuildVersion = "0.1.0-SNAPSHOT"
 
   val agentOptions = List(
+    "-Xss2m"
     // "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
     // "-agentpath:/home/dark/opt/yjp-2013-build-13072/bin/linux-x86-64/libyjpagent.so"
     // "-agentpath:/Applications/YourKit_Java_Profiler_2015_build_15052.app/Contents/Resources/bin/mac/libyjpagent.jnilib",
