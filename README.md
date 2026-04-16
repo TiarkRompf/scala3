@@ -2,7 +2,7 @@
 
 This artifact is for the paper "Typestate via Revocable Capabilities".
 
-Folder [`scala3`](scala3) contains the implementation of our Scala 3 compiler prototype
+This folder (in `scala3.tar.gz`) contains the implementation of our Scala 3 compiler prototype
 as described in Section 4.
 
 
