@@ -33,3 +33,6 @@ for series in 17 25 33; do
         echo "Done. Results appended to ${results_file}"
     done
 done
+
+find bench-ts -name results.txt -print -exec cat {} \;
+

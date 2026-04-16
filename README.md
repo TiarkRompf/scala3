@@ -3,7 +3,7 @@
 This artifact is for the paper "Typestate via Revocable Capabilities".
 
 Folder [`scala3`](scala3) contains the implementation of our Scala 3 compiler prototype
-as described in Section 5.
+as described in Section 4.
 
 ## Getting Started Guide
 
@@ -22,7 +22,7 @@ For the purpose of artifact evaluation, we provide the environment in a Docker i
 
 ### Kick the Tires
 
-To quickly check all examples, in the Docker image (default path `/work`):
+To quickly check all examples, in the Docker image (default path `/work/scala3-artifact`):
 
     ./checkExamples.sh
 
@@ -113,6 +113,8 @@ We encourgae readers to try out themselves. A few examples:
 This section describes how to reproduce the performance benchmark obtained in Figure 13 of the paper. For a quick start, run
 
     ./runAllBenchmarks.sh
+
+The benchmark should finish within an hour, with textual results printed in the end.
 
 #### Benchmark Organization
 The benchmark statistics can found in the `bench-ts/` directory.
