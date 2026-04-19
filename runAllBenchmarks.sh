@@ -34,5 +34,4 @@ for series in 17 25 33; do
     done
 done
 
-find bench-ts -name results.txt -print -exec cat {} \;
-
+python3 summaryBench.py
