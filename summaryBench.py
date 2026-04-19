@@ -6,14 +6,14 @@ def readResult(fn):
     txt = [[float(col) if idx > 0 else col
             for idx, col in enumerate(ln) if idx < 3]
            for ln in txt]
-    txt = [txt[0:5], txt[5:10], txt[10:15]]
+    txt = [txt[0:5], txt[5:10], txt[10:15]]  # F, I, E
     return txt
 
 fnames = [f'bench-ts/bench-DOM{n}/results.txt'
           for n in [17, 25, 33]]
 
 results = [readResult(fn) for fn in fnames]
-results = [results[a][b]
+results = [results[a][b]  # 17E, 17I, 17F, 25F, 33F
            for a, b in [(0,2), (0,1), (0,0), (1,0), (2,0)]]
 
 maxStd = max(ln[2]/ln[1] if ln[1] else 0
