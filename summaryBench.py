@@ -31,4 +31,3 @@ for idx, bar in enumerate(results, 1):
           'eff =', bar[2],
           'other =', bar[3],
           'total =', bar[4], sep='\t')
-

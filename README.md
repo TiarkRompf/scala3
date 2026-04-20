@@ -14,7 +14,7 @@ as described in Section 4.
 - **sbt version**: 1.10.7
 
 Following the [Getting Started User Guide](http://nightly.scala-lang.org/docs/contributing/index.html), any JDK version listed
-in [JDK Compatability](https://docs.scala-lang.org/overviews/jdk-compatibility/overview.html) should work, as well as the latest sbt version.
+in [JDK Compatibility](https://docs.scala-lang.org/overviews/jdk-compatibility/overview.html) should work, as well as the latest sbt version.
 
 Some scripts require utilities in GNU style.
 For the purpose of artifact evaluation, we provide the environment in a Docker image:
@@ -32,7 +32,8 @@ To quickly check all examples, in the Docker image (default path `/work/scala3-a
 
 ### License
 
-The code base is licensed under Apache 2.0.
+The Scala 3 compiler is licensed under Apache 2.0.
+Main changes we've made are documented below.
 
 
 ## Step-by-Step Instructions
@@ -89,11 +90,8 @@ The following table provides a figure-to-file correspondence:
 | Figure 5            | `examples/DOM.scala`         |
 | Figure 6            | `examples/SessionImp.scala`  |
 | Figure 7            | `examples/SessionImp.scala`  |
-| Figure 8            | `examples/SessionImp.scala`  |
-| Figure 9            | `examples/SessionImp.scala`  |
-| Figure 10           | `examples/ControlFlow.scala` |
-| Figure 11           | `examples/ControlFlow.scala` |
-| Figure 12           | `examples/ControlFlow.scala` |
+| Figure 8            | `examples/ControlFlow.scala` |
+| Figure 9            | `examples/ControlFlow.scala` |
 
 The `examples/` directory also contains more examples not found in the paper:
 | **File Name**        | **Description**              |
@@ -111,7 +109,7 @@ We do this because the full implementation of these examples is both non-novel a
 This does not deviate from any figure shown in the paper.
 
 While we provide all examples in positive versions, negative examples can be easily derived.
-We encourgae readers to try out themselves. A few examples:
+We encourage readers to try out themselves. A few examples:
 
 - Uncomment L.66 in `examples/File.scala`
 - Add `f.close()` before L.72 in `examples/File.scala`
@@ -120,9 +118,9 @@ We encourgae readers to try out themselves. A few examples:
 - Remove `.right()` on L.102 in `examples/SessionExp.scala`
 
 
-### Performance Benchmark (Figure 13)
+### Performance Benchmark (Figure 10)
 
-This section describes how to reproduce the performance benchmark obtained in Figure 13 of the paper. For a quick start, run
+This section describes how to reproduce the performance benchmark obtained in Figure 10 of the paper. For a quick start, run
 
     ./runAllBenchmarks.sh
 
@@ -150,11 +148,12 @@ to `bench-ts`:
 As shown from the table, each benchmark is placed in a separate subdirectory of `bench-ts/` corresponding to the number.
 
 The existing benchmarks were each compiled 15 times with `scalac` on a Mac with the following specs:
+
 - CPU: Apple M3 Pro
 - Memory: 18 GB
 - OS: macOS Sequoia 15.7.4
 
-The statistics used to construct Figure 13 were the mean and standard deviation of the runtime for
+The statistics used to construct Figure 10 were the mean and standard deviation of the runtime for
 the last 10 runs (the first 5 were used to warm up the JVM). The benchmarks used were **17F**, **17I**, **17E**, **25F**, **33FF**.
 Each subdirectory of `bench-ts/` also contains a `results.txt` which displays these statistics for each benchmark in the subdirectory.
 
@@ -212,11 +211,11 @@ is `compiler/src/dotty/tools/dotc/typer/Typer.scala`):
 
 ### Deviations from the Paper
 
-1. The Scala compiler requires parenthesization between `^` and `@`:
+1. The Scala compiler requires parentheses between `^` and `@`:
 
         def open(f: ClosedFile^): (OpenFile^) @kill(f)
 
-    whereas the paper omits parantheses for readability:
+    whereas the paper omits parentheses for readability:
 
         def open(f: ClosedFile^): OpenFile^ @kill(f)
 
@@ -236,7 +235,7 @@ is `compiler/src/dotty/tools/dotc/typer/Typer.scala`):
 
     Note that there is a footnote in the paper describing this omission.
 
-3. In Figure 7, some upper type bounds are elided for space (this is stated in the paper).
+3. In Figure 6, some upper type bounds are elided for space (this is stated in the paper).
     For example, method `send` in the figure has signature
 
         def send[T, E, P](x: T): chan.PCap[E, Send[T, P]] ?=!>? chan.PCap[E, P]
